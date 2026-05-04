@@ -9,7 +9,6 @@
 - **10-key calculator layout** — familiar Apple Calculator-style keypad with numbers, operators, backspace, and sign toggle
 - **Two stamp modes** — choose between stamping the result only (e.g. `42`) or the full expression (e.g. `6 × 7 = 42`)
 - **Smart placement** — reads all elements on the current page and places the stamp below the lowest piece of content, so it never overlaps existing notes or handwriting
-- **Native insertion** — uses the Supernote plugin API to insert text directly onto the page at a precise location
 
 ## Installation
 
