@@ -1,5 +1,9 @@
 # SnCalc for Supernote
 
+
+https://github.com/user-attachments/assets/3e2ba367-f692-4523-825e-2592ad9c354b
+
+
 **SnCalc** is a calculator plugin for the Supernote Nomad that evaluates arithmetic expressions and stamps the result — or the full expression — directly onto your current note page, placed below existing content so it never lands on top of your writing.
 
 > **Pre-release:** This plugin requires the Supernote beta firmware and is not yet intended for general use.
