@@ -10,7 +10,7 @@ https://github.com/user-attachments/assets/3e2ba367-f692-4523-825e-2592ad9c354b
 
 ## Features
 
-- **10-key calculator layout** — familiar Apple Calculator-style keypad with numbers, operators, backspace, and sign toggle
+- **10-key calculator layout** — calculator style keypad with numbers, operators, backspace, and sign toggle
 - **Two stamp modes** — choose between stamping the result only (e.g. `42`) or the full expression (e.g. `6 × 7 = 42`)
 - **Smart placement** — reads all elements on the current page and places the stamp below the lowest piece of content, so it never overlaps existing notes or handwriting
 
