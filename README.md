@@ -1,58 +1,62 @@
-# SnCalc for Supernote
-
+# SnCalc Pro for Supernote
 
 https://github.com/user-attachments/assets/3e2ba367-f692-4523-825e-2592ad9c354b
 
+**SnCalc Pro** is a high-precision, professional-grade calculator plugin for the Supernote Nomad. It transforms your device into a powerful engineering and financial instrument, featuring three distinct modes and a smart "Audit Trail" system that stamps calculations directly into your notes.
 
-**SnCalc** is a calculator plugin for the Supernote Nomad that evaluates arithmetic expressions and stamps the result — or the full expression — directly onto your current note page, placed below existing content so it never lands on top of your writing.
+> **Note:** This plugin is optimized for the Supernote Nomad and utilizes advanced plugin APIs for native text insertion.
 
-> **Pre-release:** This plugin requires the Supernote beta firmware and is not yet intended for general use.
+## 🚀 Key Features
 
-## Features
+### 📐 Three Professional Modes
+- **Standard:** A familiar algebraic calculator for quick daily tasks, featuring an ergonomic 5-column layout with percentage support.
+- **Financial (HP 12C Logic):** A full-featured RPN financial engine. Calculate TVM (Time Value of Money), Amortization (Principal/Interest breakdown), IRR (Internal Rate of Return), and NPV (Net Present Value) with 100% hardware-verified accuracy.
+- **Scientific:** A dense 7-column algebraic grid featuring over 50 functions, including hyperbolic trigonometry, logarithms (ln, log10, log2), powers, roots (including custom root solvers), and scientific notation.
 
-- **10-key calculator layout** — calculator style keypad with numbers, operators, backspace, and sign toggle
-- **Two stamp modes** — choose between stamping the result only (e.g. `42`) or the full expression (e.g. `6 × 7 = 42`)
-- **Smart placement** — reads all elements on the current page and places the stamp below the lowest piece of content, so it never overlaps existing notes or handwriting
+### 📝 Smart Audit Trails
+- **"Full Record" Stamps:** Beyond just results, SnCalc Pro can stamp detailed reports into your notes.
+  - **Amortization:** Stamps a formatted block showing periods, principal paid, interest paid, and remaining balance.
+  - **Cash Flows:** Stamps your entire investment schedule (CF0, CFj, Nj) alongside the IRR/NPV results.
+  - **Scientific:** Stamps the full algebraic expression and the result.
+- **Smart Placement:** Automatically detects the lowest element on your page and places the stamp below your handwriting, ensuring no overlaps.
 
-## Installation
+### 🧠 High-Precision Engine
+- **Deterministic Math:** Uses a custom recursive descent parser for algebraic expressions and the Newton-Raphson method for financial roots.
+- **Hardware Verified:** Solvers are verified for accuracy against physical HP 12C hardware.
 
-1. Download `SnCalc.snplg` from the [latest release](https://github.com/taoist22/sn-calc/releases).
-2. Connect your Supernote to your computer using the Supernote Partner app or Browse & Access.
-3. Copy `SnCalc.snplg` into the `MyStyle` folder on your device.
-4. On your Supernote, open a note, tap the **plugin icon** in the toolbar, go to **Manage Plugins**, tap **Add Plugin**, and select `SnCalc`.
+## 🛠️ Installation
 
-## Usage
+1. Download `SnCalc.snplg` from the latest release.
+2. Connect your Supernote to your computer.
+3. Copy `SnCalc.snplg` into the `Sideload` (or `MyStyle`) folder on your device.
+4. On your Supernote, go to **Settings > Apps > Sideload** and tap **Install**.
+5. Open a note, tap the **Plugin icon** in the toolbar, and select **SnCalc Pro**.
 
-1. Open a note and tap the **plugin icon** in the toolbar.
-2. Select **SnCalc** to open the calculator panel.
-3. Enter your expression using the keypad.
-   - **⌫** deletes the last character
-   - **AC** clears the entire expression
-   - **+/-** toggles the sign of the current number
-   - **%** converts the current number to a percentage
-4. Select your stamp mode:
-   - **Result only** — stamps just the computed result (e.g. `42`)
-   - **Full expression** — stamps the expression and result (e.g. `6 × 7 = 42`)
-5. Tap **Insert** — the text is stamped below all existing content on the current page.
+## 📖 Usage Guide
 
-## Building from Source
+### Financial Workflow (RPN)
+1. Use **g + PV** to enter Initial Cash Flow (`CFo`).
+2. Use **g + PMT** to enter Periodic Cash Flows (`CFj`).
+3. Use **f + PV** to solve for **NPV** or **f + PMT** to solve for **IRR**.
+4. Set display decimals using **f + [0-9]**.
+
+### Scientific Workflow
+1. Use the **DEG/RAD** toggle at the bottom right to switch angle units.
+2. The **Ans** key recalls the result of your previous calculation.
+3. Supports nested parentheses and complex operator precedence.
+
+## 🏗️ Building from Source
 
 ### Prerequisites
-
 - [Node.js](https://nodejs.org/) (v18+)
 - npm
 
-### Build
-
+### Build Command
 ```bash
 npm install
 ./buildPlugin.sh
 ```
+The production package will be generated at `build/outputs/SnCalc.snplg`.
 
-The plugin file will be generated at `build/outputs/SnCalc.snplg`.
-
-> **Note:** If you rename the `name` field in `package.json`, check `build/generated/` for any leftover `*.bundle` files from the previous name and delete them before rebuilding. The Supernote plugin loader will silently load the old bundle if both are present in the package.
-
-## License
-
+## 📜 License
 [MIT](LICENSE)

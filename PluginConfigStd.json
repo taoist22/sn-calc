@@ -1,0 +1,10 @@
+{
+  "name": "Calculator",
+  "desc": "Calculate and stamp results or full expressions onto the current Supernote page.",
+  "iconPath": "assets/calc.png",
+  "versionName": "1.0.0",
+  "versionCode": "1",
+  "pluginID": "c4lc8r2p5n9x7mqz",
+  "pluginKey": "Calculator",
+  "jsMainPath": "index"
+}
