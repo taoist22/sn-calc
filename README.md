@@ -1,6 +1,10 @@
 # SnCalc Pro for Supernote
 
-https://github.com/user-attachments/assets/3e2ba367-f692-4523-825e-2592ad9c354b
+
+
+https://github.com/user-attachments/assets/09932b58-709a-46b6-8de7-dc0b392f9062
+
+
 
 **SnCalc Pro** is a high-precision, professional-grade calculator plugin for the Supernote Nomad. It transforms your device into a powerful engineering and financial instrument, featuring three distinct modes and a smart "Audit Trail" system that stamps calculations directly into your notes.
 
