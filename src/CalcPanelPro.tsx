@@ -52,8 +52,20 @@ function formatNumber(n: number, decimals: number): string {
 // ─── Expression Parser ───────────────────────────────────────────────────────
 
 function evaluateExpr(expr: string, angleUnit: AngleUnit): number {
-  const s = expr.replace(/\s/g, '').replace(/×/g, '*').replace(/÷/g, '/').replace(/\^/g, '**')
-                .replace(/π/g, 'Math.PI').replace(/e/g, 'Math.E');
+  const s = expr.replace(/\s/g, '')
+                .replace(/×/g, '*')
+                .replace(/÷/g, '/')
+                .replace(/ʸ√/g, 'root')
+                .replace(/∛/g, 'cbrt')
+                .replace(/√/g, 'sqrt')
+                .replace(/²/g, '**2')
+                .replace(/³/g, '**3')
+                .replace(/\^/g, '**')
+                .replace(/π/g, 'Math.PI')
+                .replace(/([^0-9A-Za-z])e([^0-9A-Za-z])/g, '$1Math.E$2')
+                .replace(/^e([^0-9A-Za-z])/g, 'Math.E$1')
+                .replace(/([^0-9A-Za-z])e$/g, '$1Math.E')
+                .replace(/^e$/g, 'Math.E');
   if (!s) return 0;
   
   let pos = 0;
@@ -720,7 +732,7 @@ export default function CalcPanelPro() {
         {label: '=', action: handleEqual, variant: 'equals'},
 
         // Row 6
-        {label: 'eˣ', action: () => handleSciFunc('exp'), variant: 'function'},
+        {label: 'eˣ', action: () => handleSciFunc('e^'), variant: 'function'},
         {label: '10ˣ', action: () => setExpression(p => p + '10^'), variant: 'function'},
         {label: '2ˣ', action: () => setExpression(p => p + '2^'), variant: 'function'},
         {label: '(', action: () => setExpression(p => p + '('), variant: 'function'},
@@ -729,12 +741,12 @@ export default function CalcPanelPro() {
         {label: 'Ans', action: () => setExpression(p => p + 'Ans'), variant: 'function'},
 
         // Row 7
-        {label: 'x²', action: () => setExpression(p => p + '^2'), variant: 'function'},
-        {label: 'x³', action: () => setExpression(p => p + '^3'), variant: 'function'},
+        {label: 'x²', action: () => setExpression(p => p + '²'), variant: 'function'},
+        {label: 'x³', action: () => setExpression(p => p + '³'), variant: 'function'},
         {label: 'xʸ', action: () => setExpression(p => p + '^'), variant: 'function'},
-        {label: '√', action: () => handleSciFunc('sqrt'), variant: 'function'},
-        {label: '³√', action: () => handleSciFunc('cbrt'), variant: 'function'},
-        {label: 'ʸ√x', action: () => handleSciFunc('root'), variant: 'function'},
+        {label: '√', action: () => handleSciFunc('√'), variant: 'function'},
+        {label: '³√', action: () => handleSciFunc('∛'), variant: 'function'},
+        {label: 'ʸ√x', action: () => handleSciFunc('ʸ√'), variant: 'function'},
         {label: 'x!', action: () => setExpression(p => p + '!'), variant: 'function'},
 
         // Row 8
@@ -744,7 +756,7 @@ export default function CalcPanelPro() {
         {label: 'π', action: () => setExpression(p => p + 'π'), variant: 'function'},
         {label: 'e', action: () => setExpression(p => p + 'e'), variant: 'function'},
         {label: angleUnit === 'deg' ? 'Rad' : 'Deg', action: () => setAngleUnit(angleUnit === 'deg' ? 'rad' : 'deg'), variant: 'utility'},
-        {label: ' ', action: () => {}, variant: 'number'},
+        {label: ',', action: () => setExpression(p => p + ','), variant: 'number'},
       ]
     }
   };
