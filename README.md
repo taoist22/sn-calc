@@ -28,11 +28,11 @@ https://github.com/user-attachments/assets/3e2ba367-f692-4523-825e-2592ad9c354b
 
 1. Download `SnCalc.snplg` from the latest release.
 2. Connect your Supernote to your computer.
-3. Copy `SnCalc.snplg` into the `Sideload` (or `MyStyle`) folder on your device.
-4. On your Supernote, go to **Settings > Apps > Sideload** and tap **Install**.
+3. Copy `SnCalc.snplg` into the `MyStyle` folder on your device.
+4. On your Supernote, go to **Settings > Manage Plugins > Add Plugin** and choose **SnCalc.snplg**.
 5. Open a note, tap the **Plugin icon** in the toolbar, and select **SnCalc Pro**.
 
-## 📖 Usage Guide
+## 📖 Usage Guide for Pro Addons
 
 ### Financial Workflow (RPN)
 1. Use **g + PV** to enter Initial Cash Flow (`CFo`).
