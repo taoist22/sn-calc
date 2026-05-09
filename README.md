@@ -1,6 +1,9 @@
 # SnCalc Pro for Supernote
 
-<https://github.com/user-attachments/assets/09932b58-709a-46b6-8de7-dc0b392f9062>
+
+
+https://github.com/user-attachments/assets/cbfb4f3f-7f6a-4d4b-8c81-f48797578e3e
+
 
 SnCalc Pro is a calculator plugin for the Supernote Nomad with four modes: Standard, Unit Conversion, Financial, and Scientific. Results can be stamped directly into the current note page.
 
