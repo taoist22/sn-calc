@@ -1,68 +1,106 @@
 # SnCalc Pro for Supernote
 
+<https://github.com/user-attachments/assets/09932b58-709a-46b6-8de7-dc0b392f9062>
 
+SnCalc Pro is a calculator plugin for the Supernote Nomad with four modes: Standard, Unit Conversion, Financial, and Scientific. Results can be stamped directly into the current note page.
 
-https://github.com/user-attachments/assets/09932b58-709a-46b6-8de7-dc0b392f9062
+> This plugin is optimized for the Supernote Nomad and has not been tested for the Manta yet.
 
+## Modes
 
+### Standard
 
-**SnCalc Pro** is a high-precision, professional-grade calculator plugin for the Supernote Nomad. It transforms your device into a powerful engineering and financial instrument, featuring three distinct modes and a smart "Audit Trail" system that stamps calculations directly into your notes.
+A 5-column algebraic calculator for everyday arithmetic. Supports parentheses, percentage, and standard operator precedence.
 
-> **Note:** This plugin is optimized for the Supernote Nomad and utilizes advanced plugin APIs for native text insertion.
+### Conversion
 
-##  Key Features
+Unit conversion across 12 categories: Area, Data, Energy, Force, Length, Power, Pressure, Speed, Temperature, Time, Volume, and Weight.
 
-###  Three Professional Modes
-- **Standard:** A familiar algebraic calculator for quick daily tasks, featuring an ergonomic 5-column layout with percentage support.
-- **Financial (HP 12C Logic):** A full-featured RPN financial engine. Calculate TVM (Time Value of Money), Amortization (Principal/Interest breakdown), IRR (Internal Rate of Return), and NPV (Net Present Value).
-- **Scientific:** A dense 7-column algebraic grid featuring over 50 functions, including hyperbolic trigonometry, logarithms (ln, log10, log2), powers, roots (including custom root solvers), and scientific notation.
+Tap the category label to switch categories. Tap either unit label to open a selector grid. Both the From and To fields accept direct input — editing either field recalculates the other automatically.
 
-### Smart Audit Trails
-- **"Full Record" Stamps:** Beyond just results, SnCalc Pro can stamp detailed reports into your notes.
-  - **Amortization:** Stamps a formatted block showing periods, principal paid, interest paid, and remaining balance.
-  - **Cash Flows:** Stamps your entire investment schedule (CF0, CFj, Nj) alongside the IRR/NPV results.
-  - **Scientific:** Stamps the full algebraic expression and the result.
-- **Smart Placement:** Automatically detects the lowest element on your page and places the stamp below your handwriting, ensuring no overlaps.
+### Financial (RPN)
 
-### High-Precision Engine
-- **Deterministic Math:** Uses a custom recursive descent parser for algebraic expressions and the Newton-Raphson method for financial roots.
+An RPN financial calculator modeled on HP 12C conventions.
 
+- **TVM:** Solve for any of n, i, PV, PMT, or FV by entering four known values and tapping the unknown
+- **Amortization:** Enter the number of periods in X, press AMORT to compute principal, interest, and remaining balance
+- **Cash Flows / NPV / IRR:** Use g + PV for CFo, g + PMT for CFj, f + PV for NPV, f + PMT for IRR
+- **f + [0-9]:** Set decimal display precision
 
-##  Installation
+### Scientific
+
+A 7-column algebraic calculator.
+
+- Trigonometry: sin, cos, tan and inverses asin, acos, atan
+- Hyperbolic trigonometry: sinh, cosh, tanh
+- Logarithms: ln, log (base 10), log2
+- Exponentials: e^x, 10^x, x^y
+- Powers and roots: x², x³, square root, cube root, y-th root
+- Other: factorial, mod (infix operator), 1/x, absolute value, random
+- Constants: pi, e
+- Memory: MC, MR, M-, M+
+- DEG/RAD toggle; scientific notation entry via EE
+- Implicit multiplication is supported: 2pi, 3sin(30), and 4(2+1) are all valid expressions
+
+## Bottom Bar Controls
+
+Present in all modes:
+
+- **Hist navigation (back/forward):** Browse previously evaluated expressions (Standard and Scientific)
+- **Decimal places (- / +):** Adjust the number of decimal places shown, from 0 to 8
+- **,000:** Toggle thousands separator on or off
+- **Result Only / Full Record:** Controls what is stamped into the note
+- **Insert:** Stamps the current result into the note page at the cursor position
+
+## Stamp Modes
+
+**Result Only** stamps the numeric result, or the conversion pair in Conversion mode.
+
+**Full Record** stamps:
+
+- Standard / Scientific: the full expression and result
+- Financial TVM: all register values (n, i, PV, PMT, FV)
+- Financial IRR / NPV: the full cash flow schedule and result
+- Financial Amortization: periods, principal, interest, and remaining balance
+- Conversion: category name, from value and unit, to value and unit
+
+Smart placement detects the lowest existing element on the page and inserts below it.
+
+## Installation
 
 1. Download `SnCalc.snplg` from the latest release.
 2. Connect your Supernote to your computer.
 3. Copy `SnCalc.snplg` into the `MyStyle` folder on your device.
-4. On your Supernote, go to **Settings > Manage Plugins > Add Plugin** and choose **SnCalc.snplg**.
-5. Open a note, tap the **Plugin icon** in the toolbar, and select **SnCalc Pro**.
+4. On your Supernote, go to **Toolbar Plugins icon > Manage Plugins > Add Plugin** and select `SnCalc.snplg`.
+5. Open a note, tap the plugin icon in the toolbar, and select **SnCalc Pro**.
 
-## 📖 Usage Guide for Pro Addons
+## Usage Notes
 
-### Financial Workflow (RPN)
-1. Use **g + PV** to enter Initial Cash Flow (`CFo`).
-2. Use **g + PMT** to enter Periodic Cash Flows (`CFj`).
-3. Use **f + PV** to solve for **NPV** or **f + PMT** to solve for **IRR**.
-4. Set display decimals using **f + [0-9]**.
+- This is a beta release. Verify critical results independently.
+- Financial mode uses RPN (Reverse Polish Notation). Values are pushed onto a 4-register stack (X, Y, Z, T).
+- The DEG/RAD indicator appears in the top-left of the Scientific display.
+- The memory indicator (M) appears in the display when the memory register holds a non-zero value.
 
-### Scientific Workflow
-1. Use the **DEG/RAD** toggle at the bottom right to switch angle units.
-2. The **Ans** key recalls the result of your previous calculation.
-3. Supports nested parentheses and complex operator precedence.
-
-### Please verify your results, this is a beta version and there may be bugs!
-
-##  Building from Source
+## Building from Source
 
 ### Prerequisites
-- [Node.js](https://nodejs.org/) (v18+)
+
+- Node.js (v18+)
 - npm
 
-### Build Command
+### Build
+
 ```bash
 npm install
 ./buildPlugin.sh
 ```
-The production package will be generated at `build/outputs/SnCalc.snplg`.
 
-## 📜 License
+Output: `build/outputs/SnCalc.snplg`
+
+### Note on bundle files
+
+If you rename the `name` field in `package.json`, delete any old `.bundle` files from `build/generated/` before rebuilding. The Supernote plugin loader picks up the first bundle it finds — a leftover bundle from a previous name will silently override your new code.
+
+## License
+
 [MIT](LICENSE)

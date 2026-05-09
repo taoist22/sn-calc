@@ -12,11 +12,15 @@ export interface FinancialRegisters {
 
 // ─── Utils ───────────────────────────────────────────────────────────────────
 
-export function formatNumber(n: number, decimals: number): string {
+export function formatNumber(n: number, decimals: number, thousandsSep = false): string {
   if (!isFinite(n)) {
     return isNaN(n) ? 'Error' : n > 0 ? '∞' : '-∞';
   }
-  return n.toFixed(decimals);
+  const fixed = n.toFixed(decimals);
+  if (!thousandsSep) return fixed;
+  const [intPart, decPart] = fixed.split('.');
+  const formatted = intPart.replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+  return decPart !== undefined ? `${formatted}.${decPart}` : formatted;
 }
 
 // ─── Expression Parser ───────────────────────────────────────────────────────
@@ -50,7 +54,7 @@ export function evaluateExpr(expr: string, angleUnit: AngleUnit): number {
     if (s.slice(pos, pos+6) === 'Math.E') { pos += 6; return Math.E; }
     
     // Check for functions
-    const funcMatch = s.slice(pos).match(/^(sinh|cosh|tanh|asinh|acosh|atanh|sin|cos|tan|asin|acos|atan|ln|log|log2|sqrt|cbrt|exp|abs|rand|root)/);
+    const funcMatch = s.slice(pos).match(/^(sinh|cosh|tanh|asinh|acosh|atanh|sin|cos|tan|asin|acos|atan|ln|log2|log|sqrt|cbrt|exp|abs|rand|root|mod)/);
     if (funcMatch) {
         const func = funcMatch[0];
         pos += func.length;
@@ -90,6 +94,7 @@ export function evaluateExpr(expr: string, angleUnit: AngleUnit): number {
             case 'exp': return Math.exp(val);
             case 'abs': return Math.abs(val);
             case 'root': return Math.pow(val, 1 / (args[1] || 2));
+            case 'mod': return val % (args[1] ?? 1);
             default: return 0;
         }
     }
@@ -132,11 +137,23 @@ export function evaluateExpr(expr: string, angleUnit: AngleUnit): number {
 
   function parseTerm(): number {
     let left = parsePower();
-    while (pos < s.length && (peek() === '*' || peek() === '/')) {
-      const op = consume();
-      const right = parsePower();
-      if (op === '*') left *= right;
-      else if (op === '/') { if (right === 0) throw new Error('Div0'); left /= right; }
+    while (pos < s.length) {
+      if (peek() === '*' || peek() === '/') {
+        const op = consume();
+        const right = parsePower();
+        if (op === '*') left *= right;
+        else { if (right === 0) throw new Error('Div0'); left /= right; }
+      } else if (s.slice(pos, pos + 3) === 'mod') {
+        pos += 3;
+        left = left % parsePower();
+      } else if (peek() === '(' || s.slice(pos, pos + 7) === 'Math.PI' || s.slice(pos, pos + 6) === 'Math.E') {
+        left *= parsePower();
+      } else if (peek() === 'e') {
+        pos++;
+        left *= Math.E;
+      } else if (/^(sinh|cosh|tanh|asinh|acosh|atanh|sin|cos|tan|asin|acos|atan|ln|log2|log|sqrt|cbrt|exp|abs|rand|root)/.test(s.slice(pos))) {
+        left *= parsePower();
+      } else break;
     }
     return left;
   }
@@ -151,7 +168,9 @@ export function evaluateExpr(expr: string, angleUnit: AngleUnit): number {
     return left;
   }
 
-  return parseAddSub();
+  const result = parseAddSub();
+  if (pos < s.length) throw new Error('Unexpected: ' + s[pos]);
+  return result;
 }
 
 // ─── TVM Solver Logic ────────────────────────────────────────────────────────

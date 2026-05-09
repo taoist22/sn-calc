@@ -16,14 +16,29 @@ import {
   evaluateExpr,
   solveTVM
 } from './logic/calculatorLogic';
+import { CONV_CATEGORIES } from './logic/conversionData';
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
-type CalcMode = 'standard' | 'financial' | 'scientific';
+type CalcMode = 'standard' | 'conversion' | 'financial' | 'scientific';
+const MODE_LABELS: Record<CalcMode, string> = { standard: 'STD', conversion: 'CONV', financial: 'FIN', scientific: 'SCI' };
 type StampMode = 'result' | 'expression';
 type ApiRes<T> = {success: boolean; result?: T; error?: {message?: string}} | null | undefined;
 
 // ─── Constants ───────────────────────────────────────────────────────────────
+
+const PANEL_WIDTH = 480;
+const PANEL_PADDING = 15;
+const BTN_GAP = 5;
+const BTN_HEIGHT = 44;
+const STAMP_FONT_SIZE = 40;
+const LINE_HEIGHT_PAD = 10;
+const SMART_PLACEMENT_GAP = 40;
+const BOTTOM_MARGIN = 160;
+const LEFT_MARGIN = 180;
+const DEFAULT_PAGE_WIDTH = 1404;
+const DEFAULT_PAGE_HEIGHT = 1872;
+const ERROR_DISPLAY_MS = 2500;
 
 // ─── Smart placement ─────────────────────────────────────────────────────────
 
@@ -86,6 +101,18 @@ export default function CalcPanelPro() {
   const [stampMode, setStampMode] = useState<StampMode>('result');
   const [inserting, setInserting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [thousandsSep, setThousandsSep] = useState(false);
+  const [history, setHistory] = useState<string[]>([]);
+  const [historyIdx, setHistoryIdx] = useState<number | null>(null);
+  const [savedExpr, setSavedExpr] = useState('');
+  const [memoryRegister, setMemoryRegister] = useState(0);
+  const [convCatIdx, setConvCatIdx] = useState(4);  // default: Length
+  const [convFromIdx, setConvFromIdx] = useState(2); // default: m
+  const [convToIdx, setConvToIdx] = useState(5);     // default: ft
+  const [convFromVal, setConvFromVal] = useState('');
+  const [convToVal, setConvToVal] = useState('');
+  const [convActive, setConvActive] = useState<'from'|'to'>('from');
+  const [convPicker, setConvPicker] = useState<'cat'|'from'|'to'|null>(null);
   const errorTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const showError = useCallback((msg: string) => {
@@ -95,6 +122,123 @@ export default function CalcPanelPro() {
   }, []);
 
   const handleClose = useCallback(() => { if (!inserting) PluginManager.closePluginView(); }, [inserting]);
+
+  const handleHistoryPrev = () => {
+    if (history.length === 0) return;
+    if (historyIdx === null) {
+      setSavedExpr(expression);
+      const idx = history.length - 1;
+      setHistoryIdx(idx);
+      setExpression(history[idx]);
+      setStdResult(null); setEvaluated(false);
+    } else if (historyIdx > 0) {
+      const idx = historyIdx - 1;
+      setHistoryIdx(idx);
+      setExpression(history[idx]);
+      setStdResult(null); setEvaluated(false);
+    }
+  };
+
+  const handleHistoryNext = () => {
+    if (historyIdx === null) return;
+    if (historyIdx < history.length - 1) {
+      const idx = historyIdx + 1;
+      setHistoryIdx(idx);
+      setExpression(history[idx]);
+      setStdResult(null); setEvaluated(false);
+    } else {
+      setHistoryIdx(null);
+      setExpression(savedExpr);
+    }
+  };
+
+  const getCurrentValue = (): number | null => {
+    if (evaluated && stdResult !== null) return stdResult;
+    try { return evaluateExpr(expression || '0', angleUnit); } catch { return null; }
+  };
+  const handleMPlus  = () => { const v = getCurrentValue(); if (v !== null) setMemoryRegister(p => p + v); };
+  const handleMMinus = () => { const v = getCurrentValue(); if (v !== null) setMemoryRegister(p => p - v); };
+  const handleMR     = () => {
+    const s = memoryRegister.toString();
+    if (evaluated) { setExpression(s); setStdResult(null); setEvaluated(false); }
+    else setExpression(p => p + s);
+  };
+  const handleMC = () => setMemoryRegister(0);
+
+  // ─── Conversion helpers ───────────────────────────────────────────────────
+
+  const doConvert = (val: string, fromIdx: number, toIdx: number, catIdx: number): string => {
+    const num = parseFloat(val);
+    if (!val || isNaN(num)) return '';
+    const cat = CONV_CATEGORIES[catIdx];
+    const base = cat.units[fromIdx].toBase(num);
+    const result = cat.units[toIdx].fromBase(base);
+    return parseFloat(result.toPrecision(10)).toString();
+  };
+
+  const handleConvDigit = (d: string) => {
+    if (convActive === 'from') {
+      if (d === '.' && convFromVal.includes('.')) return;
+      const next = convFromVal === '0' && d !== '.' ? d : convFromVal + d;
+      setConvFromVal(next);
+      setConvToVal(doConvert(next, convFromIdx, convToIdx, convCatIdx));
+    } else {
+      if (d === '.' && convToVal.includes('.')) return;
+      const next = convToVal === '0' && d !== '.' ? d : convToVal + d;
+      setConvToVal(next);
+      setConvFromVal(doConvert(next, convToIdx, convFromIdx, convCatIdx));
+    }
+  };
+
+  const handleConvBackspace = () => {
+    if (convActive === 'from') {
+      const next = convFromVal.slice(0, -1);
+      setConvFromVal(next);
+      setConvToVal(next ? doConvert(next, convFromIdx, convToIdx, convCatIdx) : '');
+    } else {
+      const next = convToVal.slice(0, -1);
+      setConvToVal(next);
+      setConvFromVal(next ? doConvert(next, convToIdx, convFromIdx, convCatIdx) : '');
+    }
+  };
+
+  const handleConvClear = () => { setConvFromVal(''); setConvToVal(''); };
+
+  const handleConvNegate = () => {
+    if (convActive === 'from') {
+      const next = convFromVal.startsWith('-') ? convFromVal.slice(1) : (convFromVal ? '-' + convFromVal : '-');
+      setConvFromVal(next);
+      setConvToVal(doConvert(next, convFromIdx, convToIdx, convCatIdx));
+    } else {
+      const next = convToVal.startsWith('-') ? convToVal.slice(1) : (convToVal ? '-' + convToVal : '-');
+      setConvToVal(next);
+      setConvFromVal(doConvert(next, convToIdx, convFromIdx, convCatIdx));
+    }
+  };
+
+  const handleConvSwap = () => {
+    const fi = convToIdx, ti = convFromIdx, fv = convToVal, tv = convFromVal;
+    setConvFromIdx(fi); setConvToIdx(ti); setConvFromVal(fv); setConvToVal(tv);
+  };
+
+  const handleCatSelect = (idx: number) => {
+    setConvCatIdx(idx);
+    setConvFromIdx(0);
+    setConvToIdx(Math.min(1, CONV_CATEGORIES[idx].units.length - 1));
+    setConvFromVal(''); setConvToVal('');
+    setConvPicker(null);
+  };
+
+  const handleUnitSelect = (idx: number) => {
+    if (convPicker === 'from') {
+      setConvFromIdx(idx);
+      setConvToVal(convFromVal ? doConvert(convFromVal, idx, convToIdx, convCatIdx) : '');
+    } else if (convPicker === 'to') {
+      setConvToIdx(idx);
+      setConvToVal(convFromVal ? doConvert(convFromVal, convFromIdx, idx, convCatIdx) : '');
+    }
+    setConvPicker(null);
+  };
 
   const handleDigit = (d: string) => {
     setError(null);
@@ -270,44 +414,53 @@ export default function CalcPanelPro() {
   const handleInsert = useCallback(async () => {
     if (inserting) return;
     let text = "";
-    if (mode === 'financial') {
+    if (mode === 'conversion') {
+      const cat = CONV_CATEGORIES[convCatIdx];
+      const fromUnit = cat.units[convFromIdx].label;
+      const toUnit = cat.units[convToIdx].label;
+      const fv = convFromVal || '0';
+      const tv = convToVal || doConvert(fv, convFromIdx, convToIdx, convCatIdx);
+      text = stampMode === 'result'
+        ? `${fv} ${fromUnit} = ${tv} ${toUnit}`
+        : `${cat.name}: ${fv} ${fromUnit} = ${tv} ${toUnit}`;
+    } else if (mode === 'financial') {
         const valX = isEntering ? parseFloat(inputBuffer || '0') : stack[0];
-        if (stampMode === 'result') { text = formatNumber(valX, decimalPlaces); } 
+        if (stampMode === 'result') { text = formatNumber(valX, decimalPlaces, thousandsSep); }
         else {
             const parts = [];
             if (cashFlows.length > 0) {
                 parts.push('--- CASH FLOWS ---');
                 cashFlows.forEach((cf, idx) => {
-                    parts.push(`CF${idx}: ${formatNumber(cf.v, 2)}${cf.n > 1 ? ` (n:${cf.n})` : ''}`);
+                    parts.push(`CF${idx}: ${formatNumber(cf.v, 2, thousandsSep)}${cf.n > 1 ? ` (n:${cf.n})` : ''}`);
                 });
                 parts.push('------------------');
             } else if (amortPeriodsTotal > 0) {
                 parts.push('--- AMORTIZATION ---');
                 parts.push(`Periods: ${amortPeriodsTotal}`);
-                parts.push(`Principal: ${formatNumber(stack[0], decimalPlaces)}`);
-                parts.push(`Interest: ${formatNumber(stack[1], decimalPlaces)}`);
-                parts.push(`Remaining: ${formatNumber(stack[2], decimalPlaces)}`);
+                parts.push(`Principal: ${formatNumber(stack[0], decimalPlaces, thousandsSep)}`);
+                parts.push(`Interest: ${formatNumber(stack[1], decimalPlaces, thousandsSep)}`);
+                parts.push(`Remaining: ${formatNumber(stack[2], decimalPlaces, thousandsSep)}`);
                 parts.push('--------------------');
             } else {
                 if (finRegs.n !== null) parts.push(`n: ${formatNumber(finRegs.n, 2)}`);
                 if (finRegs.i !== null) parts.push(`i: ${formatNumber(finRegs.i, 2)}%`);
-                if (finRegs.pv !== null) parts.push(`PV: ${formatNumber(finRegs.pv, 2)}`);
-                if (finRegs.pmt !== null) parts.push(`PMT: ${formatNumber(finRegs.pmt, 2)}`);
-                if (finRegs.fv !== null) parts.push(`FV: ${formatNumber(finRegs.fv, 2)}`);
+                if (finRegs.pv !== null) parts.push(`PV: ${formatNumber(finRegs.pv, 2, thousandsSep)}`);
+                if (finRegs.pmt !== null) parts.push(`PMT: ${formatNumber(finRegs.pmt, 2, thousandsSep)}`);
+                if (finRegs.fv !== null) parts.push(`FV: ${formatNumber(finRegs.fv, 2, thousandsSep)}`);
                 parts.push('------------------');
             }
-            text = `${parts.join('\n')}\nResult: ${formatNumber(valX, decimalPlaces)}`;
+            text = `${parts.join('\n')}\nResult: ${formatNumber(valX, decimalPlaces, thousandsSep)}`;
         }
     } else {
       try {
         const val = evaluated && stdResult !== null ? stdResult : evaluateExpr(expression || '0', angleUnit);
-        text = stampMode === 'result' ? formatNumber(val, decimalPlaces) : `${expression} = ${formatNumber(val, decimalPlaces)}`;
+        text = stampMode === 'result' ? formatNumber(val, decimalPlaces, thousandsSep) : `${expression} = ${formatNumber(val, decimalPlaces, thousandsSep)}`;
       } catch (e) { showError('Error'); return; }
     }
     setInserting(true);
     try { await doInsert(text); PluginManager.closePluginView(); }
     catch (e) { showError('Insert failed'); } finally { setInserting(false); }
-  }, [inserting, mode, stack, inputBuffer, isEntering, finRegs, decimalPlaces, expression, stdResult, evaluated, stampMode, showError, amortPeriodsTotal, cashFlows, angleUnit]);
+  }, [inserting, mode, stack, inputBuffer, isEntering, finRegs, decimalPlaces, expression, stdResult, evaluated, stampMode, showError, amortPeriodsTotal, cashFlows, angleUnit, thousandsSep, convCatIdx, convFromIdx, convToIdx, convFromVal, convToVal]);
 
   const handleShiftedAction = (fAction: () => void, gAction: () => void, normalAction: () => void) => {
     if (fKeyState) { fAction(); setFKeyState(false); }
@@ -333,12 +486,11 @@ export default function CalcPanelPro() {
 
   const handleEqual = () => {
     try {
-        let expr = expression;
-        if (stdResult !== null) {
-            expr = expr.replace(/Ans/g, stdResult.toString());
-        }
-        const res = evaluateExpr(expr, angleUnit);
-        setStdResult(res); setEvaluated(true);
+        const res = evaluateExpr(expression, angleUnit);
+        setStdResult(res);
+        setEvaluated(true);
+        setHistory(prev => [...prev.slice(-19), expression]);
+        setHistoryIdx(null);
     } catch (e) { showError('Error'); }
   };
 
@@ -475,37 +627,37 @@ export default function CalcPanelPro() {
     scientific: {
       cols: 7,
       buttons: [
-        // Row 1
-        {label: 'sinh', action: () => handleSciFunc('sinh'), variant: 'function'},
-        {label: 'cosh', action: () => handleSciFunc('cosh'), variant: 'function'},
-        {label: 'tanh', action: () => handleSciFunc('tanh'), variant: 'function'},
+        // Row 1: Primary trig
+        {label: 'sin',  action: () => handleSciFunc('sin'),  variant: 'function'},
+        {label: 'cos',  action: () => handleSciFunc('cos'),  variant: 'function'},
+        {label: 'tan',  action: () => handleSciFunc('tan'),  variant: 'function'},
         {label: '7', action: () => handleDigit('7')},
         {label: '8', action: () => handleDigit('8')},
         {label: '9', action: () => handleDigit('9')},
         {label: '÷', action: () => handleOperator('÷'), variant: 'operator'},
 
-        // Row 2
-        {label: 'asinh', action: () => handleSciFunc('asinh'), variant: 'function'},
-        {label: 'acosh', action: () => handleSciFunc('acosh'), variant: 'function'},
-        {label: 'atanh', action: () => handleSciFunc('atanh'), variant: 'function'},
+        // Row 2: Inverse trig
+        {label: 'asin', action: () => handleSciFunc('asin'), variant: 'function'},
+        {label: 'acos', action: () => handleSciFunc('acos'), variant: 'function'},
+        {label: 'atan', action: () => handleSciFunc('atan'), variant: 'function'},
         {label: '4', action: () => handleDigit('4')},
         {label: '5', action: () => handleDigit('5')},
         {label: '6', action: () => handleDigit('6')},
         {label: '×', action: () => handleOperator('×'), variant: 'operator'},
 
-        // Row 3
-        {label: 'asin', action: () => handleSciFunc('asin'), variant: 'function'},
-        {label: 'acos', action: () => handleSciFunc('acos'), variant: 'function'},
-        {label: 'atan', action: () => handleSciFunc('atan'), variant: 'function'},
+        // Row 3: Hyperbolic trig
+        {label: 'sinh', action: () => handleSciFunc('sinh'), variant: 'function'},
+        {label: 'cosh', action: () => handleSciFunc('cosh'), variant: 'function'},
+        {label: 'tanh', action: () => handleSciFunc('tanh'), variant: 'function'},
         {label: '1', action: () => handleDigit('1')},
         {label: '2', action: () => handleDigit('2')},
         {label: '3', action: () => handleDigit('3')},
         {label: '-', action: () => handleOperator('-'), variant: 'operator'},
 
-        // Row 4
-        {label: 'sin', action: () => handleSciFunc('sin'), variant: 'function'},
-        {label: 'cos', action: () => handleSciFunc('cos'), variant: 'function'},
-        {label: 'tan', action: () => handleSciFunc('tan'), variant: 'function'},
+        // Row 4: Logarithms
+        {label: 'ln',   action: () => handleSciFunc('ln'),   variant: 'function'},
+        {label: 'log',  action: () => handleSciFunc('log'),  variant: 'function'},
+        {label: 'log2', action: () => handleSciFunc('log2'), variant: 'function'},
         {label: '+/-', action: () => {
             if (evaluated && stdResult !== null) setStdResult(-stdResult);
             else setExpression(prev => prev.startsWith('-') ? prev.slice(1) : '-' + prev);
@@ -514,47 +666,50 @@ export default function CalcPanelPro() {
         {label: '.', action: () => handleDigit('.'), variant: 'number'},
         {label: '+', action: () => handleOperator('+'), variant: 'operator'},
 
-        // Row 5
-        {label: 'ln', action: () => handleSciFunc('ln'), variant: 'function'},
-        {label: 'log', action: () => handleSciFunc('log'), variant: 'function'},
-        {label: 'log2', action: () => handleSciFunc('log2'), variant: 'function'},
+        // Row 5: Exponentials + power
+        {label: 'eˣ',  action: () => handleSciFunc('e^'),          variant: 'function'},
+        {label: '10ˣ', action: () => setExpression(p => p + '10^'), variant: 'function'},
+        {label: 'xʸ',  action: () => setExpression(p => p + '^'),   variant: 'function'},
         {label: '⌫', action: () => setExpression(p => p.slice(0, -1)), variant: 'utility'},
         {label: 'AC', action: () => { setExpression(''); setStdResult(null); setEvaluated(false); }, variant: 'highlight'},
         {label: '%', action: () => setExpression(p => p + '%'), variant: 'utility'},
         {label: '=', action: handleEqual, variant: 'equals'},
 
-        // Row 6
-        {label: 'eˣ', action: () => handleSciFunc('e^'), variant: 'function'},
-        {label: '10ˣ', action: () => setExpression(p => p + '10^'), variant: 'function'},
-        {label: '2ˣ', action: () => setExpression(p => p + '2^'), variant: 'function'},
-        {label: '(', action: () => setExpression(p => p + '('), variant: 'function'},
-        {label: ')', action: () => setExpression(p => p + ')'), variant: 'function'},
-        {label: 'EE', action: () => setExpression(p => p + 'E'), variant: 'function'},
-        {label: 'Ans', action: () => setExpression(p => p + 'Ans'), variant: 'function'},
-
-        // Row 7
+        // Row 6: Power shortcuts, factorial, parens, mod
         {label: 'x²', action: () => setExpression(p => p + '²'), variant: 'function'},
         {label: 'x³', action: () => setExpression(p => p + '³'), variant: 'function'},
-        {label: 'xʸ', action: () => setExpression(p => p + '^'), variant: 'function'},
-        {label: '√', action: () => handleSciFunc('√'), variant: 'function'},
-        {label: '³√', action: () => handleSciFunc('∛'), variant: 'function'},
-        {label: 'ʸ√x', action: () => handleSciFunc('ʸ√'), variant: 'function'},
         {label: 'x!', action: () => setExpression(p => p + '!'), variant: 'function'},
+        {label: '(', action: () => setExpression(p => p + '('), variant: 'function'},
+        {label: ')', action: () => setExpression(p => p + ')'), variant: 'function'},
+        {label: ',', action: () => setExpression(p => p + ','), variant: 'number'},
+        {label: 'mod', action: () => {
+            if (evaluated && stdResult !== null) { setExpression(stdResult.toString() + 'mod'); setStdResult(null); setEvaluated(false); }
+            else setExpression(p => p + 'mod');
+        }, variant: 'function'},
 
-        // Row 8
+        // Row 7: Roots + Memory
+        {label: '√',   action: () => handleSciFunc('√'),  variant: 'function'},
+        {label: '³√',  action: () => handleSciFunc('∛'),  variant: 'function'},
+        {label: 'ʸ√x', action: () => handleSciFunc('ʸ√'), variant: 'function'},
+        {label: 'MC',  action: handleMC,     variant: 'utility'},
+        {label: 'MR',  action: handleMR,     variant: 'utility'},
+        {label: 'M-',  action: handleMMinus, variant: 'utility'},
+        {label: 'M+',  action: handleMPlus,  variant: 'utility'},
+
+        // Row 8: Misc
         {label: '1/x', action: () => setExpression(p => p + '1/('), variant: 'function'},
-        {label: '|x|', action: () => handleSciFunc('abs'), variant: 'function'},
-        {label: 'Rand', action: () => handleSciFunc('rand'), variant: 'function'},
+        {label: '|x|', action: () => handleSciFunc('abs'),           variant: 'function'},
+        {label: 'Rand', action: () => handleSciFunc('rand'),          variant: 'function'},
         {label: 'π', action: () => setExpression(p => p + 'π'), variant: 'function'},
         {label: 'e', action: () => setExpression(p => p + 'e'), variant: 'function'},
         {label: angleUnit === 'deg' ? 'Rad' : 'Deg', action: () => setAngleUnit(angleUnit === 'deg' ? 'rad' : 'deg'), variant: 'utility'},
-        {label: ',', action: () => setExpression(p => p + ','), variant: 'number'},
+        {label: 'EE', action: () => setExpression(p => p + 'E'), variant: 'function'},
       ]
     }
   };
 
-  const modeLayout = layouts[mode];
-  const colCount = modeLayout.cols;
+  const modeLayout = mode !== 'conversion' ? layouts[mode as 'standard' | 'financial' | 'scientific'] : null;
+  const colCount = modeLayout ? modeLayout.cols : 4;
   const btnWidth = (PANEL_WIDTH - 2 * PANEL_PADDING - (colCount - 1) * BTN_GAP) / colCount;
 
   return (
@@ -564,9 +719,9 @@ export default function CalcPanelPro() {
           <View style={styles.header}>
             <Text style={styles.title}>SnCalc Pro</Text>
             <View style={styles.modeCapsule}>
-              {['standard', 'financial', 'scientific'].map(m => (
-                <Pressable key={m} onPress={() => { setMode(m as CalcMode); setError(null); }} style={[styles.modeTab, mode === m && styles.modeTabActive]}>
-                  <Text style={[styles.modeTabText, mode === m && styles.modeTabTextActive]}>{m.toUpperCase()}</Text>
+              {(['standard', 'conversion', 'financial', 'scientific'] as CalcMode[]).map(m => (
+                <Pressable key={m} onPress={() => { setMode(m); setError(null); setConvPicker(null); }} style={[styles.modeTab, mode === m && styles.modeTabActive]}>
+                  <Text style={[styles.modeTabText, mode === m && styles.modeTabTextActive]}>{MODE_LABELS[m]}</Text>
                 </Pressable>
               ))}
             </View>
@@ -585,36 +740,147 @@ export default function CalcPanelPro() {
                         <RegItem label="FV" val={finRegs.fv} />
                     </View>
                     <View style={styles.stackArea}>
-                        <View style={styles.stackLine}><Text style={styles.stackLabel}>T</Text><Text style={styles.stackVal}>{formatNumber(stack[3], decimalPlaces)}</Text></View>
-                        <View style={styles.stackLine}><Text style={styles.stackLabel}>Z</Text><Text style={styles.stackVal}>{formatNumber(stack[2], decimalPlaces)}</Text></View>
-                        <View style={styles.stackLine}><Text style={styles.stackLabel}>Y</Text><Text style={styles.stackVal}>{formatNumber(stack[1], decimalPlaces)}</Text></View>
+                        <View style={styles.stackLine}><Text style={styles.stackLabel}>T</Text><Text style={styles.stackVal}>{formatNumber(stack[3], decimalPlaces, thousandsSep)}</Text></View>
+                        <View style={styles.stackLine}><Text style={styles.stackLabel}>Z</Text><Text style={styles.stackVal}>{formatNumber(stack[2], decimalPlaces, thousandsSep)}</Text></View>
+                        <View style={styles.stackLine}><Text style={styles.stackLabel}>Y</Text><Text style={styles.stackVal}>{formatNumber(stack[1], decimalPlaces, thousandsSep)}</Text></View>
                         <View style={styles.stackLineActive}>
                             <Text style={styles.stackLabelActive}>{fKeyState ? 'f' : gKeyState ? 'g' : 'X'}</Text>
-                            <Text style={styles.stackX}>{isEntering ? (inputBuffer || '0') : formatNumber(stack[0], decimalPlaces)}</Text>
+                            <Text style={styles.stackX}>{isEntering ? (inputBuffer || '0') : formatNumber(stack[0], decimalPlaces, thousandsSep)}</Text>
                         </View>
                     </View>
+                </View>
+            ) : mode === 'conversion' ? (
+                <View style={styles.convDisplay}>
+                  <View style={styles.convCatRow}>
+                    <Pressable onPress={() => setConvPicker(convPicker === 'cat' ? null : 'cat')} style={[styles.convCatBtn, convPicker === 'cat' && styles.convCatBtnActive]}>
+                      <Text style={[styles.convCatText, convPicker === 'cat' && styles.convCatTextActive]}>{CONV_CATEGORIES[convCatIdx].name} ▼</Text>
+                    </Pressable>
+                  </View>
+                  <View style={styles.convRow}>
+                    <Pressable onPress={() => { setConvActive('from'); setConvPicker(convPicker === 'from' ? null : 'from'); }} style={[styles.convUnitBtn, convPicker === 'from' && styles.convUnitBtnActive]}>
+                      <Text style={[styles.convUnitText, convPicker === 'from' && styles.convUnitTextActive]}>{CONV_CATEGORIES[convCatIdx].units[convFromIdx].label} ▼</Text>
+                    </Pressable>
+                    <Pressable onPress={() => { setConvActive('from'); setConvPicker(null); }} style={[styles.convValueArea, convActive === 'from' && convPicker === null && styles.convValueAreaActive]}>
+                      <Text style={styles.convValueText}>
+                        {convActive === 'from'
+                          ? (convFromVal || '0')
+                          : (convFromVal ? formatNumber(parseFloat(convFromVal), decimalPlaces, thousandsSep) : '0')}
+                      </Text>
+                    </Pressable>
+                  </View>
+                  <View style={styles.convRow}>
+                    <Pressable onPress={() => { setConvActive('to'); setConvPicker(convPicker === 'to' ? null : 'to'); }} style={[styles.convUnitBtn, convPicker === 'to' && styles.convUnitBtnActive]}>
+                      <Text style={[styles.convUnitText, convPicker === 'to' && styles.convUnitTextActive]}>{CONV_CATEGORIES[convCatIdx].units[convToIdx].label} ▼</Text>
+                    </Pressable>
+                    <Pressable onPress={() => { setConvActive('to'); setConvPicker(null); }} style={[styles.convValueArea, convActive === 'to' && convPicker === null && styles.convValueAreaActive]}>
+                      <Text style={styles.convValueText}>
+                        {convActive === 'to'
+                          ? (convToVal || '0')
+                          : (convToVal ? formatNumber(parseFloat(convToVal), decimalPlaces, thousandsSep) : '0')}
+                      </Text>
+                    </Pressable>
+                  </View>
                 </View>
             ) : (
                 <View style={styles.stdDisplay}>
                     <View style={{flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', width: '100%', marginBottom: 5}}>
-                        {mode === 'scientific' && <Text style={{fontSize: 12, fontWeight: 'bold', color: '#888', backgroundColor: '#EEE', paddingHorizontal: 4, borderRadius: 3}}>{angleUnit.toUpperCase()}</Text>}
+                        {mode === 'scientific' && (
+                          <View style={{flexDirection: 'row'}}>
+                            <Text style={{fontSize: 12, fontWeight: 'bold', color: '#888', backgroundColor: '#EEE', paddingHorizontal: 4, borderRadius: 3}}>{angleUnit.toUpperCase()}</Text>
+                            {memoryRegister !== 0 && <Text style={{fontSize: 12, fontWeight: 'bold', color: '#FFF', backgroundColor: '#555', paddingHorizontal: 4, borderRadius: 3, marginLeft: 4}}>M</Text>}
+                          </View>
+                        )}
                         <Text style={styles.displayExpr}>{evaluated ? expression + ' =' : ''}</Text>
                     </View>
-                    <Text style={styles.displayMain}>{evaluated ? (stdResult !== null ? formatNumber(stdResult, decimalPlaces) : '0') : expression || '0'}</Text>
+                    <Text style={styles.displayMain}>{evaluated ? (stdResult !== null ? formatNumber(stdResult, decimalPlaces, thousandsSep) : '0') : expression || '0'}</Text>
                 </View>
             )}
           </View>
 
           <View style={styles.divider} />
           {error && <View style={styles.errorBanner}><Text style={styles.errorText}>{error}</Text></View>}
-          <View style={[styles.grid, {height: Math.ceil(modeLayout.buttons.length / colCount) * (BTN_HEIGHT + BTN_GAP) + 10}]}>
-            {modeLayout.buttons.map((btn, i) => (
-              <CalcBtn key={`${mode}-${i}`} label={btn.label} onPress={btn.action} variant={btn.variant as any} 
-                pos={{ position: 'absolute', top: Math.floor(i / colCount) * (BTN_HEIGHT + BTN_GAP), left: (i % colCount) * (btnWidth + BTN_GAP), width: btnWidth, height: BTN_HEIGHT }} />
-            ))}
-          </View>
+          {mode === 'conversion' ? (
+            convPicker !== null ? (() => {
+              const items = convPicker === 'cat'
+                ? CONV_CATEGORIES.map((c, i) => ({ label: c.name, idx: i, active: i === convCatIdx }))
+                : CONV_CATEGORIES[convCatIdx].units.map((u, i) => ({ label: u.label, idx: i, active: i === (convPicker === 'from' ? convFromIdx : convToIdx) }));
+              const pCols = 3;
+              const pBtnW = (PANEL_WIDTH - 2 * PANEL_PADDING - (pCols - 1) * BTN_GAP) / pCols;
+              const pBtnH = 40;
+              return (
+                <View>
+                  <View style={styles.pickerHeader}>
+                    <Text style={styles.pickerHeaderText}>{convPicker === 'cat' ? 'Select Category' : convPicker === 'from' ? 'Select From Unit' : 'Select To Unit'}</Text>
+                  </View>
+                  <View style={[styles.grid, {height: Math.ceil(items.length / pCols) * (pBtnH + BTN_GAP) + 10}]}>
+                    {items.map((item, i) => (
+                      <Pressable key={i} onPress={() => convPicker === 'cat' ? handleCatSelect(item.idx) : handleUnitSelect(item.idx)}
+                        style={[styles.pickerItem, {
+                          position: 'absolute',
+                          top: Math.floor(i / pCols) * (pBtnH + BTN_GAP),
+                          left: (i % pCols) * (pBtnW + BTN_GAP),
+                          width: pBtnW, height: pBtnH,
+                        }, item.active && styles.pickerItemActive]}>
+                        <Text style={[styles.pickerItemText, item.active && styles.pickerItemTextActive]}>{item.label}</Text>
+                      </Pressable>
+                    ))}
+                  </View>
+                </View>
+              );
+            })() : (() => {
+              const cCols = 4;
+              const cBtnW = (PANEL_WIDTH - 2 * PANEL_PADDING - (cCols - 1) * BTN_GAP) / cCols;
+              const convBtns = [
+                {label: '7', action: () => handleConvDigit('7'), variant: 'number'},
+                {label: '8', action: () => handleConvDigit('8'), variant: 'number'},
+                {label: '9', action: () => handleConvDigit('9'), variant: 'number'},
+                {label: '⌫', action: handleConvBackspace, variant: 'utility'},
+                {label: '4', action: () => handleConvDigit('4'), variant: 'number'},
+                {label: '5', action: () => handleConvDigit('5'), variant: 'number'},
+                {label: '6', action: () => handleConvDigit('6'), variant: 'number'},
+                {label: 'AC', action: handleConvClear, variant: 'highlight'},
+                {label: '1', action: () => handleConvDigit('1'), variant: 'number'},
+                {label: '2', action: () => handleConvDigit('2'), variant: 'number'},
+                {label: '3', action: () => handleConvDigit('3'), variant: 'number'},
+                {label: '+/-', action: handleConvNegate, variant: 'utility'},
+                {label: '.', action: () => handleConvDigit('.'), variant: 'number'},
+                {label: '0', action: () => handleConvDigit('0'), variant: 'number'},
+                {label: '⇌', action: handleConvSwap, variant: 'utility'},
+              ];
+              return (
+                <View style={[styles.grid, {height: Math.ceil(convBtns.length / cCols) * (BTN_HEIGHT + BTN_GAP) + 10}]}>
+                  {convBtns.map((btn, i) => (
+                    <CalcBtn key={i} label={btn.label} onPress={btn.action} variant={btn.variant as any}
+                      pos={{ position: 'absolute', top: Math.floor(i / cCols) * (BTN_HEIGHT + BTN_GAP), left: (i % cCols) * (cBtnW + BTN_GAP), width: cBtnW, height: BTN_HEIGHT }} />
+                  ))}
+                </View>
+              );
+            })()
+          ) : (
+            <View style={[styles.grid, {height: Math.ceil(modeLayout!.buttons.length / colCount) * (BTN_HEIGHT + BTN_GAP) + 10}]}>
+              {modeLayout!.buttons.map((btn, i) => (
+                <CalcBtn key={`${mode}-${i}`} label={btn.label} onPress={btn.action} variant={btn.variant as any}
+                  pos={{ position: 'absolute', top: Math.floor(i / colCount) * (BTN_HEIGHT + BTN_GAP), left: (i % colCount) * (btnWidth + BTN_GAP), width: btnWidth, height: BTN_HEIGHT }} />
+              ))}
+            </View>
+          )}
           <View style={styles.divider} />
           <View style={styles.bottomArea}>
+            <View style={styles.controlRow}>
+              <View style={styles.controlGroup}>
+                <Pressable onPress={handleHistoryPrev} style={styles.controlBtn}><Text style={styles.controlBtnText}>◀</Text></Pressable>
+                <Text style={styles.controlLabel}>Hist</Text>
+                <Pressable onPress={handleHistoryNext} style={styles.controlBtn}><Text style={styles.controlBtnText}>▶</Text></Pressable>
+              </View>
+              <View style={styles.controlGroup}>
+                <Pressable onPress={() => setDecimalPlaces(p => Math.max(0, p - 1))} style={styles.controlBtn}><Text style={styles.controlBtnText}>−</Text></Pressable>
+                <Text style={styles.controlLabel}>{decimalPlaces}dp</Text>
+                <Pressable onPress={() => setDecimalPlaces(p => Math.min(8, p + 1))} style={styles.controlBtn}><Text style={styles.controlBtnText}>+</Text></Pressable>
+              </View>
+              <Pressable onPress={() => setThousandsSep(p => !p)} style={[styles.controlBtn, styles.controlBtnWide, thousandsSep && styles.controlBtnActive]}>
+                <Text style={[styles.controlBtnText, thousandsSep && styles.controlBtnTextActive]}>,000</Text>
+              </Pressable>
+            </View>
             <View style={styles.toggleRow}>
               <Pressable style={[styles.toggleBtn, stampMode === 'result' && styles.toggleBtnActive]} onPress={() => setStampMode('result')}><Text style={[styles.toggleText, stampMode === 'result' && styles.toggleTextActive]}>Result only</Text></Pressable>
               <View style={styles.toggleBtnSpacer} />
@@ -648,7 +914,8 @@ function CalcBtn({label, onPress, variant = 'number', pos}: {label: string, onPr
         variant === 'highlight' && styles.btnTextHighlight,
         variant === 'fKey' && styles.btnTextFKey,
         variant === 'gKey' && styles.btnTextGKey,
-        label.length > 4 && {fontSize: 9}
+        label.length === 5 && {fontSize: 11},
+        label.length > 5 && {fontSize: 9}
       ]}>{label}</Text>
     </Pressable>
   );
@@ -660,7 +927,7 @@ const styles = StyleSheet.create({
   header: { paddingHorizontal: 10, paddingVertical: 6, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
   title: { fontSize: 18, fontWeight: 'bold' },
   modeCapsule: { flexDirection: 'row', backgroundColor: '#F0F0F0', borderRadius: 20, padding: 2 },
-  modeTab: { paddingHorizontal: 12, paddingVertical: 4, borderRadius: 18 },
+  modeTab: { paddingHorizontal: 8, paddingVertical: 4, borderRadius: 18 },
   modeTabActive: { backgroundColor: '#000000' },
   modeTabText: { fontSize: 10, fontWeight: 'bold', color: '#666666' },
   modeTabTextActive: { color: '#FFFFFF' },
@@ -706,6 +973,14 @@ const styles = StyleSheet.create({
   btnTextGKey: { color: '#FFFFFF', fontWeight: 'bold' },
   
   bottomArea: { padding: 8 },
+  controlRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 },
+  controlGroup: { flexDirection: 'row', alignItems: 'center' },
+  controlLabel: { fontSize: 11, fontWeight: 'bold', color: '#444', marginHorizontal: 4, minWidth: 28, textAlign: 'center' },
+  controlBtn: { paddingHorizontal: 8, paddingVertical: 4, borderRadius: 4, borderWidth: 1, borderColor: '#CCC', backgroundColor: '#F0F0F0' },
+  controlBtnWide: { paddingHorizontal: 12 },
+  controlBtnActive: { backgroundColor: '#000', borderColor: '#000' },
+  controlBtnText: { fontSize: 12, fontWeight: 'bold', color: '#333' },
+  controlBtnTextActive: { color: '#FFF' },
   toggleRow: { flexDirection: 'row', marginBottom: 4 },
   toggleBtn: { flex: 1, padding: 6, alignItems: 'center', borderRadius: 4, borderWidth: 1, borderColor: '#CCC' },
   toggleBtnActive: { backgroundColor: '#000', borderColor: '#000' },
@@ -713,5 +988,27 @@ const styles = StyleSheet.create({
   toggleText: { fontSize: 10, color: '#888', fontWeight: 'bold' },
   toggleTextActive: { color: '#FFF' },
   insertBtn: { padding: 10, alignItems: 'center', borderRadius: 6, borderWidth: 1.5, borderColor: '#000' },
-  insertBtnText: { fontWeight: 'bold', fontSize: 16 }
+  insertBtnText: { fontWeight: 'bold', fontSize: 16 },
+
+  convDisplay: { padding: 10, justifyContent: 'center', minHeight: 140 },
+  convCatRow: { alignItems: 'center', marginBottom: 8 },
+  convCatBtn: { paddingHorizontal: 20, paddingVertical: 6, borderRadius: 20, borderWidth: 1.5, borderColor: '#000', backgroundColor: '#EEE' },
+  convCatBtnActive: { backgroundColor: '#000' },
+  convCatText: { fontSize: 15, fontWeight: 'bold', color: '#000' },
+  convCatTextActive: { color: '#FFF' },
+  convRow: { flexDirection: 'row', alignItems: 'center', marginBottom: 6 },
+  convUnitBtn: { width: 72, paddingVertical: 10, borderRadius: 6, borderWidth: 1, borderColor: '#888', backgroundColor: '#F0F0F0', alignItems: 'center' },
+  convUnitBtnActive: { backgroundColor: '#000', borderColor: '#000' },
+  convUnitText: { fontSize: 13, fontWeight: 'bold', color: '#000' },
+  convUnitTextActive: { color: '#FFF' },
+  convValueArea: { flex: 1, marginLeft: 8, paddingHorizontal: 10, paddingVertical: 8, borderRadius: 6, borderWidth: 1, borderColor: '#DDD', backgroundColor: '#FAFAFA', alignItems: 'flex-end' },
+  convValueAreaActive: { borderColor: '#000', borderWidth: 2, backgroundColor: '#FFF' },
+  convValueText: { fontSize: 26, fontWeight: 'bold', color: '#000' },
+
+  pickerHeader: { paddingHorizontal: PANEL_PADDING, paddingVertical: 4, backgroundColor: '#F4F4F4', borderBottomWidth: 1, borderColor: '#DDD' },
+  pickerHeaderText: { fontSize: 11, fontWeight: 'bold', color: '#555', textAlign: 'center' },
+  pickerItem: { borderRadius: 4, borderWidth: 1, borderColor: '#CCC', backgroundColor: '#F8F8F8', alignItems: 'center', justifyContent: 'center' },
+  pickerItemActive: { backgroundColor: '#000', borderColor: '#000' },
+  pickerItemText: { fontSize: 13, fontWeight: '500', color: '#000' },
+  pickerItemTextActive: { color: '#FFF' },
 });
