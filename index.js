@@ -15,7 +15,7 @@ installPluginRouter();
 
 PluginManager.registerButton(BUTTON_TYPE_TOOLBAR, ['NOTE'], {
   id: TOOLBAR_BUTTON_ID,
-  name: 'SnCalcPro',
+  name: 'Calculator',
   icon: Image.resolveAssetSource(require('./assets/calc.png')).uri,
   showType: SHOW_TYPE_WITH_UI,
 });

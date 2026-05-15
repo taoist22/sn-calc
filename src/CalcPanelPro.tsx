@@ -1,4 +1,4 @@
-import React, {useCallback, useRef, useState} from 'react';
+import React, {useCallback, useMemo, useRef, useState} from 'react';
 import {
   KeyboardAvoidingView,
   Platform,
@@ -27,10 +27,6 @@ type ApiRes<T> = {success: boolean; result?: T; error?: {message?: string}} | nu
 
 // ─── Constants ───────────────────────────────────────────────────────────────
 
-const PANEL_WIDTH = 480;
-const PANEL_PADDING = 15;
-const BTN_GAP = 5;
-const BTN_HEIGHT = 44;
 const STAMP_FONT_SIZE = 40;
 const LINE_HEIGHT_PAD = 10;
 const SMART_PLACEMENT_GAP = 40;
@@ -74,14 +70,109 @@ async function doInsert(text: string): Promise<void> {
   const top = (filePath !== undefined && pageNum !== undefined) ? await findInsertTop(filePath, pageNum, pageHeight, boxHeight) : pageHeight - BOTTOM_MARGIN - boxHeight;
 
   const textRect = { left: LEFT_MARGIN, top, right: LEFT_MARGIN + boxWidth, bottom: top + boxHeight };
-  const res = (await PluginNoteAPI.insertText({ textContentFull: text, textRect, fontSize: STAMP_FONT_SIZE, textBold: 1, textItalics: 0, textAlign: 0, textEditable: 1, showLassoAfterInsert: true })) as ApiRes<boolean>;
+  const res = (await PluginNoteAPI.insertText({ textContentFull: text, textRect, fontSize: STAMP_FONT_SIZE, textBold: 1, textItalics: 0, textAlign: 0, textEditable: 1, showLassoAfterInsert: false })) as ApiRes<boolean>;
   if (!res?.success) throw new Error(res?.error?.message ?? 'Fail');
   try { await PluginCommAPI.lassoElements(textRect); } catch {}
 }
 
+// ─── Scaled styles ────────────────────────────────────────────────────────────
+
+function makeStyles(s: number) {
+  const pp = Math.round(15 * s);
+  return StyleSheet.create({
+    overlay: { flex: 1, backgroundColor: 'transparent', alignItems: 'center', justifyContent: 'center' },
+    panel: { width: Math.round(480 * s), backgroundColor: '#FFFFFF', borderRadius: Math.round(12 * s), borderWidth: 1.5, borderColor: '#000000' },
+    header: { paddingHorizontal: Math.round(10 * s), paddingVertical: Math.round(6 * s), flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
+    title: { fontSize: Math.round(18 * s), fontWeight: 'bold' },
+    modeCapsule: { flexDirection: 'row', backgroundColor: '#F0F0F0', borderRadius: 20, padding: 2 },
+    modeTab: { paddingHorizontal: Math.round(8 * s), paddingVertical: Math.round(4 * s), borderRadius: 18 },
+    modeTabActive: { backgroundColor: '#000000' },
+    modeTabText: { fontSize: Math.round(10 * s), fontWeight: 'bold', color: '#666666' },
+    modeTabTextActive: { color: '#FFFFFF' },
+    closeBtn: { width: Math.round(30 * s), height: Math.round(30 * s), borderRadius: Math.round(15 * s), borderWidth: 1.5, borderColor: '#000', alignItems: 'center', justifyContent: 'center' },
+    closeText: { fontSize: Math.round(14 * s), fontWeight: 'bold' },
+    divider: { height: 1, backgroundColor: '#000000' },
+    displayArea: { minHeight: Math.round(140 * s), backgroundColor: '#FDFDFD' },
+    finDisplay: { padding: Math.round(10 * s) },
+    regRow: { flexDirection: 'row', justifyContent: 'space-between', marginBottom: 6 },
+    regItem: { alignItems: 'center', flex: 1 },
+    regLabel: { fontSize: Math.round(9 * s), color: '#444', fontWeight: 'bold' },
+    regVal: { fontSize: Math.round(11 * s), color: '#000', fontWeight: '600' },
+    stackArea: { borderTopWidth: 1, borderColor: '#DDD', paddingTop: 4 },
+    stackLine: { flexDirection: 'row', justifyContent: 'space-between', marginBottom: 1, height: Math.round(16 * s) },
+    stackLineActive: { flexDirection: 'row', justifyContent: 'space-between', height: Math.round(36 * s), alignItems: 'center' },
+    stackLabel: { fontSize: Math.round(10 * s), color: '#999', fontWeight: 'bold' },
+    stackLabelActive: { fontSize: Math.round(14 * s), color: '#000', fontWeight: 'bold' },
+    stackVal: { fontSize: Math.round(13 * s), color: '#666' },
+    stackX: { fontSize: Math.round(28 * s), fontWeight: 'bold', color: '#000' },
+    stdDisplay: { padding: Math.round(15 * s), alignItems: 'flex-end', justifyContent: 'center', height: Math.round(140 * s) },
+    displayExpr: { fontSize: Math.round(16 * s), color: '#888', marginBottom: 10 },
+    displayMain: { fontSize: Math.round(44 * s), fontWeight: 'bold', color: '#000' },
+    errorBanner: { padding: 4, backgroundColor: '#000', margin: 4, borderRadius: 4 },
+    errorText: { color: '#FFF', fontSize: Math.round(11 * s), textAlign: 'center' },
+    grid: { paddingHorizontal: pp, paddingVertical: 5 },
+    btn: { borderRadius: 4, borderWidth: 1, borderColor: '#CCC', backgroundColor: '#F8F8F8', alignItems: 'center', justifyContent: 'center' },
+    btnUtility: { backgroundColor: '#E8E8E8' },
+    btnOperator: { backgroundColor: '#EFEFEF' },
+    btnFunction: { backgroundColor: '#F0F0F0' },
+    btnEquals: { backgroundColor: '#000000' },
+    btnHighlight: { backgroundColor: '#BBBBBB', borderColor: '#888888' },
+    btnFKey: { backgroundColor: '#DDDDDD', borderColor: '#AAAAAA' },
+    btnGKey: { backgroundColor: '#999999', borderColor: '#666666' },
+    btnText: { fontSize: Math.round(15 * s), fontWeight: '500' },
+    btnTextEquals: { color: '#FFFFFF', fontWeight: 'bold' },
+    btnTextHighlight: { color: '#000000', fontWeight: 'bold' },
+    btnTextFKey: { color: '#000000', fontWeight: 'bold' },
+    btnTextGKey: { color: '#FFFFFF', fontWeight: 'bold' },
+    bottomArea: { padding: Math.round(8 * s) },
+    controlRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 },
+    controlGroup: { flexDirection: 'row', alignItems: 'center' },
+    controlLabel: { fontSize: Math.round(11 * s), fontWeight: 'bold', color: '#444', marginHorizontal: 4, minWidth: Math.round(28 * s), textAlign: 'center' },
+    controlBtn: { paddingHorizontal: Math.round(8 * s), paddingVertical: Math.round(4 * s), borderRadius: 4, borderWidth: 1, borderColor: '#CCC', backgroundColor: '#F0F0F0' },
+    controlBtnWide: { paddingHorizontal: Math.round(12 * s) },
+    controlBtnActive: { backgroundColor: '#000', borderColor: '#000' },
+    controlBtnText: { fontSize: Math.round(12 * s), fontWeight: 'bold', color: '#333' },
+    controlBtnTextActive: { color: '#FFF' },
+    toggleRow: { flexDirection: 'row', marginBottom: 4 },
+    toggleBtn: { flex: 1, padding: Math.round(6 * s), alignItems: 'center', borderRadius: 4, borderWidth: 1, borderColor: '#CCC' },
+    toggleBtnActive: { backgroundColor: '#000', borderColor: '#000' },
+    toggleBtnSpacer: { width: Math.round(8 * s) },
+    toggleText: { fontSize: Math.round(10 * s), color: '#888', fontWeight: 'bold' },
+    toggleTextActive: { color: '#FFF' },
+    insertBtn: { padding: Math.round(10 * s), alignItems: 'center', borderRadius: 6, borderWidth: 1.5, borderColor: '#000' },
+    insertBtnText: { fontWeight: 'bold', fontSize: Math.round(16 * s) },
+    convDisplay: { padding: Math.round(10 * s), justifyContent: 'center', minHeight: Math.round(140 * s) },
+    convCatRow: { alignItems: 'center', marginBottom: 8 },
+    convCatBtn: { paddingHorizontal: Math.round(20 * s), paddingVertical: Math.round(6 * s), borderRadius: 20, borderWidth: 1.5, borderColor: '#000', backgroundColor: '#EEE' },
+    convCatBtnActive: { backgroundColor: '#000' },
+    convCatText: { fontSize: Math.round(15 * s), fontWeight: 'bold', color: '#000' },
+    convCatTextActive: { color: '#FFF' },
+    convRow: { flexDirection: 'row', alignItems: 'center', marginBottom: 6 },
+    convUnitBtn: { width: Math.round(72 * s), paddingVertical: Math.round(10 * s), borderRadius: 6, borderWidth: 1, borderColor: '#888', backgroundColor: '#F0F0F0', alignItems: 'center' },
+    convUnitBtnActive: { backgroundColor: '#000', borderColor: '#000' },
+    convUnitText: { fontSize: Math.round(13 * s), fontWeight: 'bold', color: '#000' },
+    convUnitTextActive: { color: '#FFF' },
+    convValueArea: { flex: 1, marginLeft: Math.round(8 * s), paddingHorizontal: Math.round(10 * s), paddingVertical: Math.round(8 * s), borderRadius: 6, borderWidth: 1, borderColor: '#DDD', backgroundColor: '#FAFAFA', alignItems: 'flex-end' },
+    convValueAreaActive: { borderColor: '#000', borderWidth: 2, backgroundColor: '#FFF' },
+    convValueText: { fontSize: Math.round(26 * s), fontWeight: 'bold', color: '#000' },
+    pickerHeader: { paddingHorizontal: pp, paddingVertical: 4, backgroundColor: '#F4F4F4', borderBottomWidth: 1, borderColor: '#DDD' },
+    pickerHeaderText: { fontSize: Math.round(11 * s), fontWeight: 'bold', color: '#555', textAlign: 'center' },
+    pickerItem: { borderRadius: 4, borderWidth: 1, borderColor: '#CCC', backgroundColor: '#F8F8F8', alignItems: 'center', justifyContent: 'center' },
+    pickerItemActive: { backgroundColor: '#000', borderColor: '#000' },
+    pickerItemText: { fontSize: Math.round(13 * s), fontWeight: '500', color: '#000' },
+    pickerItemTextActive: { color: '#FFF' },
+  });
+}
+const baseStyles = makeStyles(1);
+
 // ─── Component ───────────────────────────────────────────────────────────────
 
-export default function CalcPanelPro() {
+export default function CalcPanelPro({scale = 1}: {scale?: number}) {
+  const PANEL_WIDTH = Math.round(480 * scale);
+  const PANEL_PADDING = Math.round(15 * scale);
+  const BTN_GAP = Math.round(5 * scale);
+  const BTN_HEIGHT = Math.round(44 * scale);
+  const styles = useMemo(() => makeStyles(scale), []);
   const [mode, setMode] = useState<CalcMode>('standard');
   const [angleUnit, setAngleUnit] = useState<AngleUnit>('deg');
   const [stack, setStack] = useState<[number, number, number, number]>([0, 0, 0, 0]);
@@ -717,7 +808,7 @@ export default function CalcPanelPro() {
       <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
         <Pressable style={styles.panel} onPress={e => e.stopPropagation()}>
           <View style={styles.header}>
-            <Text style={styles.title}>SnCalc Pro</Text>
+            <Text style={styles.title}>Calculator</Text>
             <View style={styles.modeCapsule}>
               {(['standard', 'conversion', 'financial', 'scientific'] as CalcMode[]).map(m => (
                 <Pressable key={m} onPress={() => { setMode(m); setError(null); setConvPicker(null); }} style={[styles.modeTab, mode === m && styles.modeTabActive]}>
@@ -733,11 +824,11 @@ export default function CalcPanelPro() {
             {mode === 'financial' ? (
                 <View style={styles.finDisplay}>
                     <View style={styles.regRow}>
-                        <RegItem label="n" val={finRegs.n} />
-                        <RegItem label="i%" val={finRegs.i} />
-                        <RegItem label="PV" val={finRegs.pv} />
-                        <RegItem label="PMT" val={finRegs.pmt} />
-                        <RegItem label="FV" val={finRegs.fv} />
+                        <RegItem label="n" val={finRegs.n} scale={scale} />
+                        <RegItem label="i%" val={finRegs.i} scale={scale} />
+                        <RegItem label="PV" val={finRegs.pv} scale={scale} />
+                        <RegItem label="PMT" val={finRegs.pmt} scale={scale} />
+                        <RegItem label="FV" val={finRegs.fv} scale={scale} />
                     </View>
                     <View style={styles.stackArea}>
                         <View style={styles.stackLine}><Text style={styles.stackLabel}>T</Text><Text style={styles.stackVal}>{formatNumber(stack[3], decimalPlaces, thousandsSep)}</Text></View>
@@ -806,7 +897,7 @@ export default function CalcPanelPro() {
                 : CONV_CATEGORIES[convCatIdx].units.map((u, i) => ({ label: u.label, idx: i, active: i === (convPicker === 'from' ? convFromIdx : convToIdx) }));
               const pCols = 3;
               const pBtnW = (PANEL_WIDTH - 2 * PANEL_PADDING - (pCols - 1) * BTN_GAP) / pCols;
-              const pBtnH = 40;
+              const pBtnH = Math.round(40 * scale);
               return (
                 <View>
                   <View style={styles.pickerHeader}>
@@ -850,7 +941,7 @@ export default function CalcPanelPro() {
               return (
                 <View style={[styles.grid, {height: Math.ceil(convBtns.length / cCols) * (BTN_HEIGHT + BTN_GAP) + 10}]}>
                   {convBtns.map((btn, i) => (
-                    <CalcBtn key={i} label={btn.label} onPress={btn.action} variant={btn.variant as any}
+                    <CalcBtn key={i} label={btn.label} onPress={btn.action} variant={btn.variant as any} scale={scale}
                       pos={{ position: 'absolute', top: Math.floor(i / cCols) * (BTN_HEIGHT + BTN_GAP), left: (i % cCols) * (cBtnW + BTN_GAP), width: cBtnW, height: BTN_HEIGHT }} />
                   ))}
                 </View>
@@ -859,7 +950,7 @@ export default function CalcPanelPro() {
           ) : (
             <View style={[styles.grid, {height: Math.ceil(modeLayout!.buttons.length / colCount) * (BTN_HEIGHT + BTN_GAP) + 10}]}>
               {modeLayout!.buttons.map((btn, i) => (
-                <CalcBtn key={`${mode}-${i}`} label={btn.label} onPress={btn.action} variant={btn.variant as any}
+                <CalcBtn key={`${mode}-${i}`} label={btn.label} onPress={btn.action} variant={btn.variant as any} scale={scale}
                   pos={{ position: 'absolute', top: Math.floor(i / colCount) * (BTN_HEIGHT + BTN_GAP), left: (i % colCount) * (btnWidth + BTN_GAP), width: btnWidth, height: BTN_HEIGHT }} />
               ))}
             </View>
@@ -894,121 +985,36 @@ export default function CalcPanelPro() {
   );
 }
 
-function RegItem({label, val}: {label: string, val: number | null}) {
-  return (<View style={styles.regItem}><Text style={styles.regLabel}>{label}</Text><Text style={styles.regVal} numberOfLines={1}>{val === null ? '--' : val.toString()}</Text></View>);
+function RegItem({label, val, scale = 1}: {label: string, val: number | null, scale?: number}) {
+  return (
+    <View style={baseStyles.regItem}>
+      <Text style={[baseStyles.regLabel, {fontSize: Math.round(9 * scale)}]}>{label}</Text>
+      <Text style={[baseStyles.regVal, {fontSize: Math.round(11 * scale)}]} numberOfLines={1}>{val === null ? '--' : val.toString()}</Text>
+    </View>
+  );
 }
 
-function CalcBtn({label, onPress, variant = 'number', pos}: {label: string, onPress: () => void, variant?: 'number' | 'utility' | 'operator' | 'equals' | 'function' | 'highlight' | 'fKey' | 'gKey', pos: any}) {
+function CalcBtn({label, onPress, variant = 'number', pos, scale = 1}: {label: string, onPress: () => void, variant?: 'number' | 'utility' | 'operator' | 'equals' | 'function' | 'highlight' | 'fKey' | 'gKey', pos: any, scale?: number}) {
   return (
-    <Pressable onPress={onPress} style={[styles.btn, pos, 
-        variant === 'utility' && styles.btnUtility, 
-        variant === 'operator' && styles.btnOperator, 
-        variant === 'equals' && styles.btnEquals, 
-        variant === 'function' && styles.btnFunction, 
-        variant === 'highlight' && styles.btnHighlight,
-        variant === 'fKey' && styles.btnFKey,
-        variant === 'gKey' && styles.btnGKey
+    <Pressable onPress={onPress} style={[baseStyles.btn, pos,
+        variant === 'utility' && baseStyles.btnUtility,
+        variant === 'operator' && baseStyles.btnOperator,
+        variant === 'equals' && baseStyles.btnEquals,
+        variant === 'function' && baseStyles.btnFunction,
+        variant === 'highlight' && baseStyles.btnHighlight,
+        variant === 'fKey' && baseStyles.btnFKey,
+        variant === 'gKey' && baseStyles.btnGKey
     ]}>
-      <Text style={[styles.btnText, 
-        variant === 'equals' && styles.btnTextEquals, 
-        variant === 'highlight' && styles.btnTextHighlight,
-        variant === 'fKey' && styles.btnTextFKey,
-        variant === 'gKey' && styles.btnTextGKey,
-        label.length === 5 && {fontSize: 11},
-        label.length > 5 && {fontSize: 9}
+      <Text style={[baseStyles.btnText,
+        {fontSize: Math.round(15 * scale)},
+        variant === 'equals' && baseStyles.btnTextEquals,
+        variant === 'highlight' && baseStyles.btnTextHighlight,
+        variant === 'fKey' && baseStyles.btnTextFKey,
+        variant === 'gKey' && baseStyles.btnTextGKey,
+        label.length === 5 && {fontSize: Math.round(11 * scale)},
+        label.length > 5 && {fontSize: Math.round(9 * scale)}
       ]}>{label}</Text>
     </Pressable>
   );
 }
 
-const styles = StyleSheet.create({
-  overlay: { flex: 1, backgroundColor: 'transparent', alignItems: 'center', justifyContent: 'center' },
-  panel: { width: PANEL_WIDTH, backgroundColor: '#FFFFFF', borderRadius: 12, borderWidth: 1.5, borderColor: '#000000' },
-  header: { paddingHorizontal: 10, paddingVertical: 6, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
-  title: { fontSize: 18, fontWeight: 'bold' },
-  modeCapsule: { flexDirection: 'row', backgroundColor: '#F0F0F0', borderRadius: 20, padding: 2 },
-  modeTab: { paddingHorizontal: 8, paddingVertical: 4, borderRadius: 18 },
-  modeTabActive: { backgroundColor: '#000000' },
-  modeTabText: { fontSize: 10, fontWeight: 'bold', color: '#666666' },
-  modeTabTextActive: { color: '#FFFFFF' },
-  closeBtn: { width: 30, height: 30, borderRadius: 15, borderWidth: 1.5, borderColor: '#000', alignItems: 'center', justifyContent: 'center' },
-  closeText: { fontSize: 14, fontWeight: 'bold' },
-  divider: { height: 1, backgroundColor: '#000000' },
-  
-  displayArea: { minHeight: 140, backgroundColor: '#FDFDFD' },
-  finDisplay: { padding: 10 },
-  regRow: { flexDirection: 'row', justifyContent: 'space-between', marginBottom: 6 },
-  regItem: { alignItems: 'center', flex: 1 },
-  regLabel: { fontSize: 9, color: '#444', fontWeight: 'bold' },
-  regVal: { fontSize: 11, color: '#000', fontWeight: '600' },
-  
-  stackArea: { borderTopWidth: 1, borderColor: '#DDD', paddingTop: 4 },
-  stackLine: { flexDirection: 'row', justifyContent: 'space-between', marginBottom: 1, height: 16 },
-  stackLineActive: { flexDirection: 'row', justifyContent: 'space-between', height: 36, alignItems: 'center' },
-  stackLabel: { fontSize: 10, color: '#999', fontWeight: 'bold' },
-  stackLabelActive: { fontSize: 14, color: '#000', fontWeight: 'bold' },
-  stackVal: { fontSize: 13, color: '#666' },
-  stackX: { fontSize: 28, fontWeight: 'bold', color: '#000' },
-
-  stdDisplay: { padding: 15, alignItems: 'flex-end', justifyContent: 'center', height: 140 },
-  displayExpr: { fontSize: 16, color: '#888', marginBottom: 10 },
-  displayMain: { fontSize: 44, fontWeight: 'bold', color: '#000' },
-
-  errorBanner: { padding: 4, backgroundColor: '#000', margin: 4, borderRadius: 4 },
-  errorText: { color: '#FFF', fontSize: 11, textAlign: 'center' },
-  
-  grid: { paddingHorizontal: PANEL_PADDING, paddingVertical: 5 },
-  btn: { borderRadius: 4, borderWidth: 1, borderColor: '#CCC', backgroundColor: '#F8F8F8', alignItems: 'center', justifyContent: 'center' },
-  btnUtility: { backgroundColor: '#E8E8E8' },
-  btnOperator: { backgroundColor: '#EFEFEF' },
-  btnFunction: { backgroundColor: '#F0F0F0' },
-  btnEquals: { backgroundColor: '#000000' },
-  btnHighlight: { backgroundColor: '#BBBBBB', borderColor: '#888888' },
-  btnFKey: { backgroundColor: '#DDDDDD', borderColor: '#AAAAAA' },
-  btnGKey: { backgroundColor: '#999999', borderColor: '#666666' },
-  btnText: { fontSize: 15, fontWeight: '500' },
-  btnTextEquals: { color: '#FFFFFF', fontWeight: 'bold' },
-  btnTextHighlight: { color: '#000000', fontWeight: 'bold' },
-  btnTextFKey: { color: '#000000', fontWeight: 'bold' },
-  btnTextGKey: { color: '#FFFFFF', fontWeight: 'bold' },
-  
-  bottomArea: { padding: 8 },
-  controlRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 },
-  controlGroup: { flexDirection: 'row', alignItems: 'center' },
-  controlLabel: { fontSize: 11, fontWeight: 'bold', color: '#444', marginHorizontal: 4, minWidth: 28, textAlign: 'center' },
-  controlBtn: { paddingHorizontal: 8, paddingVertical: 4, borderRadius: 4, borderWidth: 1, borderColor: '#CCC', backgroundColor: '#F0F0F0' },
-  controlBtnWide: { paddingHorizontal: 12 },
-  controlBtnActive: { backgroundColor: '#000', borderColor: '#000' },
-  controlBtnText: { fontSize: 12, fontWeight: 'bold', color: '#333' },
-  controlBtnTextActive: { color: '#FFF' },
-  toggleRow: { flexDirection: 'row', marginBottom: 4 },
-  toggleBtn: { flex: 1, padding: 6, alignItems: 'center', borderRadius: 4, borderWidth: 1, borderColor: '#CCC' },
-  toggleBtnActive: { backgroundColor: '#000', borderColor: '#000' },
-  toggleBtnSpacer: { width: 8 },
-  toggleText: { fontSize: 10, color: '#888', fontWeight: 'bold' },
-  toggleTextActive: { color: '#FFF' },
-  insertBtn: { padding: 10, alignItems: 'center', borderRadius: 6, borderWidth: 1.5, borderColor: '#000' },
-  insertBtnText: { fontWeight: 'bold', fontSize: 16 },
-
-  convDisplay: { padding: 10, justifyContent: 'center', minHeight: 140 },
-  convCatRow: { alignItems: 'center', marginBottom: 8 },
-  convCatBtn: { paddingHorizontal: 20, paddingVertical: 6, borderRadius: 20, borderWidth: 1.5, borderColor: '#000', backgroundColor: '#EEE' },
-  convCatBtnActive: { backgroundColor: '#000' },
-  convCatText: { fontSize: 15, fontWeight: 'bold', color: '#000' },
-  convCatTextActive: { color: '#FFF' },
-  convRow: { flexDirection: 'row', alignItems: 'center', marginBottom: 6 },
-  convUnitBtn: { width: 72, paddingVertical: 10, borderRadius: 6, borderWidth: 1, borderColor: '#888', backgroundColor: '#F0F0F0', alignItems: 'center' },
-  convUnitBtnActive: { backgroundColor: '#000', borderColor: '#000' },
-  convUnitText: { fontSize: 13, fontWeight: 'bold', color: '#000' },
-  convUnitTextActive: { color: '#FFF' },
-  convValueArea: { flex: 1, marginLeft: 8, paddingHorizontal: 10, paddingVertical: 8, borderRadius: 6, borderWidth: 1, borderColor: '#DDD', backgroundColor: '#FAFAFA', alignItems: 'flex-end' },
-  convValueAreaActive: { borderColor: '#000', borderWidth: 2, backgroundColor: '#FFF' },
-  convValueText: { fontSize: 26, fontWeight: 'bold', color: '#000' },
-
-  pickerHeader: { paddingHorizontal: PANEL_PADDING, paddingVertical: 4, backgroundColor: '#F4F4F4', borderBottomWidth: 1, borderColor: '#DDD' },
-  pickerHeaderText: { fontSize: 11, fontWeight: 'bold', color: '#555', textAlign: 'center' },
-  pickerItem: { borderRadius: 4, borderWidth: 1, borderColor: '#CCC', backgroundColor: '#F8F8F8', alignItems: 'center', justifyContent: 'center' },
-  pickerItemActive: { backgroundColor: '#000', borderColor: '#000' },
-  pickerItemText: { fontSize: 13, fontWeight: '500', color: '#000' },
-  pickerItemTextActive: { color: '#FFF' },
-});
