@@ -5,9 +5,7 @@
 https://github.com/user-attachments/assets/cbfb4f3f-7f6a-4d4b-8c81-f48797578e3e
 
 
-SnCalc Pro is a calculator plugin for the Supernote Nomad with four modes: Standard, Unit Conversion, Financial, and Scientific. Results can be stamped directly into the current note page.
-
-> This plugin is optimized for the Supernote Nomad and has not been tested for the Manta yet.
+SnCalc Pro is a calculator plugin for the Supernote Nomad and Manta (A5X2) with four modes: Standard, Unit Conversion, Financial, and Scientific. Results can be stamped directly into the current note page.
 
 ## Modes
 
@@ -52,12 +50,23 @@ Present in all modes:
 - **Hist navigation (back/forward):** Browse previously evaluated expressions (Standard and Scientific)
 - **Decimal places (- / +):** Adjust the number of decimal places shown, from 0 to 8
 - **,000:** Toggle thousands separator on or off
-- **Result Only / Full Record:** Controls what is stamped into the note
+- **No label / With label** *(Conversion mode)* or **Result Only / Full Record** *(other modes)*: Controls what is stamped into the note
 - **Insert:** Stamps the current result into the note page at the cursor position
 
 ## Stamp Modes
 
-**Result Only** stamps the numeric result, or the conversion pair in Conversion mode.
+The output toggle controls how results are stamped. The labels change depending on the active mode.
+
+### Conversion mode
+
+| Toggle | Output |
+|--------|--------|
+| **No label** | `1 nmi = 1.852 km` |
+| **With label** | `Length: 1 nmi = 1.852 km` |
+
+### All other modes
+
+**Result Only** stamps only the numeric result.
 
 **Full Record** stamps:
 
@@ -65,7 +74,8 @@ Present in all modes:
 - Financial TVM: all register values (n, i, PV, PMT, FV)
 - Financial IRR / NPV: the full cash flow schedule and result
 - Financial Amortization: periods, principal, interest, and remaining balance
-- Conversion: category name, from value and unit, to value and unit
+
+The selected stamp mode is remembered for the rest of the session, so it stays set even after closing and reopening the calculator.
 
 Smart placement detects the lowest existing element on the page and inserts below it.
 
