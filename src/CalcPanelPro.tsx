@@ -1,4 +1,4 @@
-import React, {useCallback, useMemo, useRef, useState} from 'react';
+import React, {useCallback, useEffect, useMemo, useRef, useState} from 'react';
 import {
   KeyboardAvoidingView,
   Platform,
@@ -35,6 +35,16 @@ const LEFT_MARGIN = 180;
 const DEFAULT_PAGE_WIDTH = 1404;
 const DEFAULT_PAGE_HEIGHT = 1872;
 const ERROR_DISPLAY_MS = 2500;
+
+// ─── Persistent preferences ──────────────────────────────────────────────────
+// Module-level object: survives React remounts (toolbar re-open) but resets on
+// full JS bundle reload (cold app start). Keeps user preferences like stamp
+// mode and decimal settings across sessions without needing AsyncStorage.
+const prefs = {
+  stampMode: 'result' as StampMode,
+  decimalPlaces: 2,
+  thousandsSep: false,
+};
 
 // ─── Smart placement ─────────────────────────────────────────────────────────
 
@@ -179,7 +189,7 @@ export default function CalcPanelPro({scale = 1}: {scale?: number}) {
   const [inputBuffer, setInputBuffer] = useState('');
   const [isEntering, setIsEntering] = useState(false);
   const [liftEnabled, setLiftEnabled] = useState(true);
-  const [decimalPlaces, setDecimalPlaces] = useState(2);
+  const [decimalPlaces, setDecimalPlaces] = useState(prefs.decimalPlaces);
   const [fKeyState, setFKeyState] = useState(false);
   const [gKeyState, setGKeyState] = useState(false);
   const [finRegs, setFinRegs] = useState<FinancialRegisters>({ n: null, i: null, pv: null, pmt: null, fv: null });
@@ -189,10 +199,10 @@ export default function CalcPanelPro({scale = 1}: {scale?: number}) {
   const [expression, setExpression] = useState('');
   const [stdResult, setStdResult] = useState<number | null>(null);
   const [evaluated, setEvaluated] = useState(false);
-  const [stampMode, setStampMode] = useState<StampMode>('result');
+  const [stampMode, setStampMode] = useState<StampMode>(prefs.stampMode);
   const [inserting, setInserting] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [thousandsSep, setThousandsSep] = useState(false);
+  const [thousandsSep, setThousandsSep] = useState(prefs.thousandsSep);
   const [history, setHistory] = useState<string[]>([]);
   const [historyIdx, setHistoryIdx] = useState<number | null>(null);
   const [savedExpr, setSavedExpr] = useState('');
@@ -205,6 +215,11 @@ export default function CalcPanelPro({scale = 1}: {scale?: number}) {
   const [convActive, setConvActive] = useState<'from'|'to'>('from');
   const [convPicker, setConvPicker] = useState<'cat'|'from'|'to'|null>(null);
   const errorTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Sync preferences back to module-level prefs so they survive remounts
+  useEffect(() => { prefs.stampMode = stampMode; }, [stampMode]);
+  useEffect(() => { prefs.decimalPlaces = decimalPlaces; }, [decimalPlaces]);
+  useEffect(() => { prefs.thousandsSep = thousandsSep; }, [thousandsSep]);
 
   const showError = useCallback((msg: string) => {
     setError(msg);
@@ -973,9 +988,9 @@ export default function CalcPanelPro({scale = 1}: {scale?: number}) {
               </Pressable>
             </View>
             <View style={styles.toggleRow}>
-              <Pressable style={[styles.toggleBtn, stampMode === 'result' && styles.toggleBtnActive]} onPress={() => setStampMode('result')}><Text style={[styles.toggleText, stampMode === 'result' && styles.toggleTextActive]}>Result only</Text></Pressable>
+              <Pressable style={[styles.toggleBtn, stampMode === 'result' && styles.toggleBtnActive]} onPress={() => setStampMode('result')}><Text style={[styles.toggleText, stampMode === 'result' && styles.toggleTextActive]}>{mode === 'conversion' ? 'No label' : 'Result only'}</Text></Pressable>
               <View style={styles.toggleBtnSpacer} />
-              <Pressable style={[styles.toggleBtn, stampMode === 'expression' && styles.toggleBtnActive]} onPress={() => setStampMode('expression')}><Text style={[styles.toggleText, stampMode === 'expression' && styles.toggleTextActive]}>Full record</Text></Pressable>
+              <Pressable style={[styles.toggleBtn, stampMode === 'expression' && styles.toggleBtnActive]} onPress={() => setStampMode('expression')}><Text style={[styles.toggleText, stampMode === 'expression' && styles.toggleTextActive]}>{mode === 'conversion' ? 'With label' : 'Full record'}</Text></Pressable>
             </View>
             <Pressable onPress={handleInsert} disabled={inserting} style={styles.insertBtn}><Text style={styles.insertBtnText}>{inserting ? 'Inserting...' : 'Insert'}</Text></Pressable>
           </View>
