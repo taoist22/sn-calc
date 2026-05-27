@@ -80,9 +80,8 @@ async function doInsert(text: string): Promise<void> {
   const top = (filePath !== undefined && pageNum !== undefined) ? await findInsertTop(filePath, pageNum, pageHeight, boxHeight) : pageHeight - BOTTOM_MARGIN - boxHeight;
 
   const textRect = { left: LEFT_MARGIN, top, right: LEFT_MARGIN + boxWidth, bottom: top + boxHeight };
-  const res = (await PluginNoteAPI.insertText({ textContentFull: text, textRect, fontSize: STAMP_FONT_SIZE, textBold: 1, textItalics: 0, textAlign: 0, textEditable: 1, showLassoAfterInsert: false })) as ApiRes<boolean>;
+  const res = (await PluginNoteAPI.insertText({ textContentFull: text, textRect, fontSize: STAMP_FONT_SIZE, textBold: 1, textItalics: 0, textAlign: 0, textEditable: 1, showLassoAfterInsert: true })) as ApiRes<boolean>;
   if (!res?.success) throw new Error(res?.error?.message ?? 'Fail');
-  try { await PluginCommAPI.lassoElements(textRect); } catch {}
 }
 
 // ─── Scaled styles ────────────────────────────────────────────────────────────
