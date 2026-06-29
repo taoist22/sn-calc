@@ -23,6 +23,148 @@ export function formatNumber(n: number, decimals: number, thousandsSep = false):
   return decPart !== undefined ? `${formatted}.${decPart}` : formatted;
 }
 
+// ─── Expression Entry Helpers ───────────────────────────────────────────────
+
+const BINARY_OPERATORS = '+-×÷^';
+const TERM_BREAKERS = '+-×÷^(';
+
+function lastChar(value: string): string {
+  return value[value.length - 1] ?? '';
+}
+
+function isDigit(value: string): boolean {
+  return value >= '0' && value <= '9';
+}
+
+function findLastTermStart(expr: string): number {
+  for (let i = expr.length - 1; i >= 0; i--) {
+    const ch = expr[i];
+    if (ch === '-') {
+      if (i === 0 || TERM_BREAKERS.includes(expr[i - 1])) {
+        continue;
+      }
+      return i + 1;
+    }
+    if (ch === '+' || ch === '×' || ch === '÷' || ch === '(' || ch === ',') {
+      return i + 1;
+    }
+  }
+  return 0;
+}
+
+export function appendDigitToExpression(expr: string, digit: string): string {
+  if (!isDigit(digit)) {
+    return expr;
+  }
+  const start = findLastTermStart(expr);
+  const term = expr.slice(start);
+  if (term === '0') {
+    return expr.slice(0, start) + digit;
+  }
+  if (term === '-0') {
+    return expr.slice(0, start) + '-' + digit;
+  }
+  return expr + digit;
+}
+
+export function appendDecimalToExpression(expr: string): string {
+  const start = findLastTermStart(expr);
+  const term = expr.slice(start);
+  const last = lastChar(expr);
+  if (term.includes('.')) {
+    return expr;
+  }
+  if (!expr || BINARY_OPERATORS.includes(last) || last === '(' || last === ',') {
+    return expr + '0.';
+  }
+  if (last === '%' || last === '!' || last === ')') {
+    return expr;
+  }
+  return expr + '.';
+}
+
+export function appendOperatorToExpression(expr: string, op: string): string {
+  if (!BINARY_OPERATORS.includes(op)) {
+    return expr;
+  }
+  if (!expr) {
+    return op === '-' ? '-' : expr;
+  }
+  const last = lastChar(expr);
+  if (last === '.') {
+    expr = expr.slice(0, -1);
+  }
+  const cleanedLast = lastChar(expr);
+  if (cleanedLast === '(' || cleanedLast === ',') {
+    return op === '-' ? expr + '-' : expr;
+  }
+  if (BINARY_OPERATORS.includes(cleanedLast)) {
+    const prev = expr[expr.length - 2] ?? '';
+    if (op === '-' && cleanedLast !== '-' && cleanedLast !== '+') {
+      return expr + '-';
+    }
+    if (cleanedLast === '-' && BINARY_OPERATORS.includes(prev)) {
+      return expr.slice(0, -2) + op;
+    }
+    return expr.slice(0, -1) + op;
+  }
+  return expr + op;
+}
+
+export function appendPercentToExpression(expr: string): string {
+  if (!expr) {
+    return expr;
+  }
+  const last = lastChar(expr);
+  if (BINARY_OPERATORS.includes(last) || last === '(' || last === ',' || last === '.' || last === '%' || last === '!') {
+    return expr;
+  }
+  return expr + '%';
+}
+
+export function toggleExpressionSign(expr: string): string {
+  if (!expr) {
+    return '-';
+  }
+  const start = findLastTermStart(expr);
+  const term = expr.slice(start);
+  if (!term || term === '-') {
+    return expr;
+  }
+  if (term.startsWith('-')) {
+    return expr.slice(0, start) + term.slice(1);
+  }
+  return expr.slice(0, start) + '-' + term;
+}
+
+export function balanceExpression(expr: string): string {
+  let depth = 0;
+  for (const ch of expr) {
+    if (ch === '(') {
+      depth++;
+    } else if (ch === ')') {
+      depth = Math.max(0, depth - 1);
+    }
+  }
+  const last = lastChar(expr);
+  if (!expr || BINARY_OPERATORS.includes(last) || last === '(' || last === ',' || last === '.') {
+    return expr;
+  }
+  return expr + ')'.repeat(depth);
+}
+
+export function calculationErrorMessage(error: unknown): string {
+  const msg = error instanceof Error ? error.message : String(error);
+  if (msg.includes('Div0')) return 'Division by zero';
+  if (msg.includes('Domain')) return 'Domain error';
+  if (msg.includes('Expect )')) return 'Missing )';
+  if (msg.includes('Expect (')) return 'Missing (';
+  if (msg.includes('Num?')) return 'Expected number';
+  if (msg.includes('Bad factorial')) return 'Factorial needs whole number';
+  if (msg.includes('Unexpected')) return 'Unexpected input';
+  return 'Error';
+}
+
 // ─── Expression Parser ───────────────────────────────────────────────────────
 
 export function evaluateExpr(expr: string, angleUnit: AngleUnit): number {
@@ -48,6 +190,9 @@ export function evaluateExpr(expr: string, angleUnit: AngleUnit): number {
 
   function toRad(val: number) { return angleUnit === 'deg' ? val * Math.PI / 180 : val; }
   function fromRad(val: number) { return angleUnit === 'deg' ? val * 180 / Math.PI : val; }
+  function requireDomain(ok: boolean): void {
+    if (!ok) throw new Error('Domain');
+  }
 
   function parseNumber(): number {
     if (s.slice(pos, pos+7) === 'Math.PI') { pos += 7; return Math.PI; }
@@ -77,24 +222,37 @@ export function evaluateExpr(expr: string, angleUnit: AngleUnit): number {
             case 'sin': return Math.sin(toRad(val));
             case 'cos': return Math.cos(toRad(val));
             case 'tan': return Math.tan(toRad(val));
-            case 'asin': return fromRad(Math.asin(val));
-            case 'acos': return fromRad(Math.acos(val));
+            case 'asin': requireDomain(val >= -1 && val <= 1); return fromRad(Math.asin(val));
+            case 'acos': requireDomain(val >= -1 && val <= 1); return fromRad(Math.acos(val));
             case 'atan': return fromRad(Math.atan(val));
             case 'sinh': return Math.sinh(val);
             case 'cosh': return Math.cosh(val);
             case 'tanh': return Math.tanh(val);
             case 'asinh': return Math.asinh(val);
-            case 'acosh': return Math.acosh(val);
-            case 'atanh': return Math.atanh(val);
-            case 'ln': return Math.log(val);
-            case 'log': return Math.log10(val);
-            case 'log2': return Math.log2(val);
-            case 'sqrt': return Math.sqrt(val);
+            case 'acosh': requireDomain(val >= 1); return Math.acosh(val);
+            case 'atanh': requireDomain(val > -1 && val < 1); return Math.atanh(val);
+            case 'ln': requireDomain(val > 0); return Math.log(val);
+            case 'log': requireDomain(val > 0); return Math.log10(val);
+            case 'log2': requireDomain(val > 0); return Math.log2(val);
+            case 'sqrt': requireDomain(val >= 0); return Math.sqrt(val);
             case 'cbrt': return Math.cbrt(val);
             case 'exp': return Math.exp(val);
             case 'abs': return Math.abs(val);
-            case 'root': return Math.pow(val, 1 / (args[1] || 2));
-            case 'mod': return val % (args[1] ?? 1);
+            case 'root': {
+                const root = args[1] || 2;
+                requireDomain(root !== 0);
+                const isOddIntegerRoot = Number.isInteger(root) && Math.abs(root % 2) === 1;
+                requireDomain(val >= 0 || isOddIntegerRoot);
+                if (val < 0 && isOddIntegerRoot) {
+                    return -Math.pow(Math.abs(val), 1 / root);
+                }
+                return Math.pow(val, 1 / root);
+            }
+            case 'mod': {
+                const divisor = args[1] ?? 1;
+                if (divisor === 0) throw new Error('Div0');
+                return val % divisor;
+            }
             default: return 0;
         }
     }
@@ -106,10 +264,10 @@ export function evaluateExpr(expr: string, angleUnit: AngleUnit): number {
         return val;
     }
 
-    let str = '';
-    if (peek() === '-') str += consume();
-    while (pos < s.length && ((peek() >= '0' && peek() <= '9') || peek() === '.' || peek() === 'E' || (str.includes('E') && (str.endsWith('E') && peek() === '-')))) str += consume();
-    if (!str || str === '-') throw new Error('Num?');
+    const match = s.slice(pos).match(/^-?(?:\d+(?:\.\d*)?|\.\d+)(?:E-?\d+)?/);
+    if (!match) throw new Error('Num?');
+    const str = match[0];
+    pos += str.length;
     let val = parseFloat(str);
 
     // Suffix operators: % and !
@@ -117,6 +275,9 @@ export function evaluateExpr(expr: string, angleUnit: AngleUnit): number {
         const op = consume();
         if (op === '%') val /= 100;
         else if (op === '!') {
+            if (val < 0 || !Number.isInteger(val)) {
+                throw new Error('Bad factorial');
+            }
             let res = 1;
             for (let i = 2; i <= Math.floor(val); i++) res *= i;
             val = res;
@@ -127,9 +288,9 @@ export function evaluateExpr(expr: string, angleUnit: AngleUnit): number {
 
   function parsePower(): number {
       let left = parseNumber();
-      while (pos < s.length && s.slice(pos, pos+2) === '**') {
+      if (pos < s.length && s.slice(pos, pos+2) === '**') {
           pos += 2;
-          const right = parseNumber();
+          const right = parsePower();
           left = Math.pow(left, right);
       }
       return left;
@@ -145,7 +306,9 @@ export function evaluateExpr(expr: string, angleUnit: AngleUnit): number {
         else { if (right === 0) throw new Error('Div0'); left /= right; }
       } else if (s.slice(pos, pos + 3) === 'mod') {
         pos += 3;
-        left = left % parsePower();
+        const right = parsePower();
+        if (right === 0) throw new Error('Div0');
+        left = left % right;
       } else if (peek() === '(' || s.slice(pos, pos + 7) === 'Math.PI' || s.slice(pos, pos + 6) === 'Math.E') {
         left *= parsePower();
       } else if (peek() === 'e') {

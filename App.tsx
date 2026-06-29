@@ -14,7 +14,10 @@ export default function App() {
   useEffect(() => {
     const sub = PluginManager.addPluginLifeListener({onStart() {}, onStop() {}});
     PluginManager.getDeviceType()
-      .then(t => setScale(t === 5 ? MANTA_SCALE : 1))
+      .then(t => {
+        const deviceType = typeof t === 'number' ? t : (t as any)?.result;
+        setScale(deviceType === 5 ? MANTA_SCALE : 1);
+      })
       .catch(() => setScale(1));
     return () => sub.remove();
   }, []);

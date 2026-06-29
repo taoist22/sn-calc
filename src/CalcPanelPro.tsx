@@ -3,6 +3,7 @@ import {
   KeyboardAvoidingView,
   Platform,
   Pressable,
+  ScrollView,
   StyleSheet,
   Text,
   View,
@@ -12,9 +13,16 @@ import {PluginCommAPI, PluginFileAPI, PluginManager, PluginNoteAPI} from 'sn-plu
 import {
   AngleUnit,
   FinancialRegisters,
+  appendDecimalToExpression,
+  appendDigitToExpression,
+  appendOperatorToExpression,
+  appendPercentToExpression,
+  balanceExpression,
+  calculationErrorMessage,
   formatNumber,
   evaluateExpr,
-  solveTVM
+  solveTVM,
+  toggleExpressionSign
 } from './logic/calculatorLogic';
 import { CONV_CATEGORIES } from './logic/conversionData';
 
@@ -24,17 +32,33 @@ type CalcMode = 'standard' | 'conversion' | 'financial' | 'scientific';
 const MODE_LABELS: Record<CalcMode, string> = { standard: 'STD', conversion: 'CONV', financial: 'FIN', scientific: 'SCI' };
 type StampMode = 'result' | 'expression';
 type ApiRes<T> = {success: boolean; result?: T; error?: {message?: string}} | null | undefined;
+type FinRecord = {
+  title: string;
+  lines: string[];
+  result: number;
+};
+type FinTapeEntry = {
+  entry: string;
+  total: number;
+};
 
 // ─── Constants ───────────────────────────────────────────────────────────────
 
 const STAMP_FONT_SIZE = 40;
+const MIN_STAMP_FONT_SIZE = 24;
 const LINE_HEIGHT_PAD = 10;
 const SMART_PLACEMENT_GAP = 40;
 const BOTTOM_MARGIN = 160;
 const LEFT_MARGIN = 180;
+const PAGE_EDGE_MARGIN = 40;
 const DEFAULT_PAGE_WIDTH = 1404;
 const DEFAULT_PAGE_HEIGHT = 1872;
 const ERROR_DISPLAY_MS = 2500;
+const DEVICE_NATIVE_PORTRAIT: Record<number, {width: number; height: number}> = {
+  3: {width: 1404, height: 1872}, // A5X
+  4: {width: 1404, height: 1872}, // Nomad
+  5: {width: 1920, height: 2560}, // Manta
+};
 
 // ─── Persistent preferences ──────────────────────────────────────────────────
 // Module-level object: survives React remounts (toolbar re-open) but resets on
@@ -48,16 +72,49 @@ const prefs = {
 
 // ─── Smart placement ─────────────────────────────────────────────────────────
 
+function clamp(value: number, min: number, max: number): number {
+  return Math.min(Math.max(value, min), max);
+}
+
+function nativePlacementSizeFor(
+  pageWidth: number,
+  pageHeight: number,
+  deviceType: number | null,
+): {width: number; height: number} {
+  if (deviceType == null) return {width: pageWidth, height: pageHeight};
+  const native = DEVICE_NATIVE_PORTRAIT[deviceType];
+  if (!native) return {width: pageWidth, height: pageHeight};
+  const isLandscape = pageWidth > pageHeight;
+  const nativeWidth = isLandscape ? native.height : native.width;
+  const nativeHeight = isLandscape ? native.width : native.height;
+  return {
+    width: Math.min(pageWidth, nativeWidth),
+    height: Math.min(pageHeight, nativeHeight),
+  };
+}
+
+async function getDeviceTypeSafe(): Promise<number | null> {
+  try {
+    const deviceType = (await PluginManager.getDeviceType()) as unknown;
+    if (typeof deviceType === 'number') return deviceType;
+    if (typeof (deviceType as any)?.result === 'number') return (deviceType as any).result;
+  } catch {}
+  return null;
+}
+
 async function findInsertTop(filePath: string, pageNum: number, pageHeight: number, boxHeight: number): Promise<number> {
+  const lowestSafeTop = Math.max(PAGE_EDGE_MARGIN, pageHeight - PAGE_EDGE_MARGIN - boxHeight);
   try {
     const res = (await PluginFileAPI.getElements(pageNum, filePath)) as ApiRes<any[]>;
     if (res?.success && Array.isArray(res.result) && res.result.length > 0) {
       const lowestEdge = Math.max(...res.result.map((el: any) => el.maxY ?? 0));
       const candidate = lowestEdge + SMART_PLACEMENT_GAP;
-      if (candidate + boxHeight + 20 < pageHeight) return candidate;
+      if (candidate + boxHeight + PAGE_EDGE_MARGIN <= pageHeight) {
+        return clamp(candidate, PAGE_EDGE_MARGIN, lowestSafeTop);
+      }
     }
   } catch {}
-  return pageHeight - BOTTOM_MARGIN - boxHeight;
+  return clamp(pageHeight - BOTTOM_MARGIN - boxHeight, PAGE_EDGE_MARGIN, lowestSafeTop);
 }
 
 async function doInsert(text: string): Promise<void> {
@@ -71,16 +128,31 @@ async function doInsert(text: string): Promise<void> {
       if (sizeRes?.success && sizeRes.result) { pageWidth = sizeRes.result.width; pageHeight = sizeRes.result.height; }
     }
   } catch {}
+  const deviceType = await getDeviceTypeSafe();
+  const placementSize = nativePlacementSizeFor(pageWidth, pageHeight, deviceType);
+  pageWidth = placementSize.width;
+  pageHeight = placementSize.height;
   
   const lines = text.split('\n');
   const lineCount = lines.length;
   const maxLineLength = Math.max(...lines.map(l => l.length));
-  const boxWidth = Math.max(STAMP_FONT_SIZE * 6, Math.min(Math.ceil(maxLineLength * STAMP_FONT_SIZE * 0.7), pageWidth - 100));
-  const boxHeight = lineCount * (STAMP_FONT_SIZE + LINE_HEIGHT_PAD);
-  const top = (filePath !== undefined && pageNum !== undefined) ? await findInsertTop(filePath, pageNum, pageHeight, boxHeight) : pageHeight - BOTTOM_MARGIN - boxHeight;
+  const maxBoxHeight = Math.max(MIN_STAMP_FONT_SIZE + LINE_HEIGHT_PAD, pageHeight - PAGE_EDGE_MARGIN * 2);
+  const stampFontSize = lineCount * (STAMP_FONT_SIZE + LINE_HEIGHT_PAD) > maxBoxHeight
+    ? Math.max(MIN_STAMP_FONT_SIZE, Math.floor(maxBoxHeight / lineCount) - LINE_HEIGHT_PAD)
+    : STAMP_FONT_SIZE;
+  const boxHeight = Math.min(lineCount * (stampFontSize + LINE_HEIGHT_PAD), maxBoxHeight);
+  const fallbackTop = clamp(
+    pageHeight - BOTTOM_MARGIN - boxHeight,
+    PAGE_EDGE_MARGIN,
+    Math.max(PAGE_EDGE_MARGIN, pageHeight - PAGE_EDGE_MARGIN - boxHeight),
+  );
+  const top = (filePath !== undefined && pageNum !== undefined) ? await findInsertTop(filePath, pageNum, pageHeight, boxHeight) : fallbackTop;
+  const left = Math.min(LEFT_MARGIN, Math.max(PAGE_EDGE_MARGIN, Math.floor(pageWidth * 0.12)));
+  const availableWidth = Math.max(stampFontSize * 6, pageWidth - left - PAGE_EDGE_MARGIN);
+  const boxWidth = Math.min(Math.max(stampFontSize * 6, Math.ceil(maxLineLength * stampFontSize * 0.7)), availableWidth);
 
-  const textRect = { left: LEFT_MARGIN, top, right: LEFT_MARGIN + boxWidth, bottom: top + boxHeight };
-  const res = (await PluginNoteAPI.insertText({ textContentFull: text, textRect, fontSize: STAMP_FONT_SIZE, textBold: 1, textItalics: 0, textAlign: 0, textEditable: 1, showLassoAfterInsert: true })) as ApiRes<boolean>;
+  const safeRect = { left, top, right: left + boxWidth, bottom: top + boxHeight };
+  const res = (await PluginNoteAPI.insertText({ textContentFull: text, textRect: safeRect, fontSize: stampFontSize, textBold: 1, textItalics: 0, textAlign: 0, textEditable: 1, showLassoAfterInsert: true })) as ApiRes<boolean>;
   if (!res?.success) throw new Error(res?.error?.message ?? 'Fail');
 }
 
@@ -115,6 +187,8 @@ function makeStyles(s: number) {
     stackVal: { fontSize: Math.round(13 * s), color: '#666' },
     stackX: { fontSize: Math.round(28 * s), fontWeight: 'bold', color: '#000' },
     stdDisplay: { padding: Math.round(15 * s), alignItems: 'flex-end', justifyContent: 'center', height: Math.round(140 * s) },
+    displayScroll: { flex: 1, width: '100%' },
+    displayScrollContent: { flexGrow: 1, alignItems: 'flex-end', justifyContent: 'flex-end' },
     displayExpr: { fontSize: Math.round(16 * s), color: '#888', marginBottom: 10 },
     displayMain: { fontSize: Math.round(44 * s), fontWeight: 'bold', color: '#000' },
     errorBanner: { padding: 4, backgroundColor: '#000', margin: 4, borderRadius: 4 },
@@ -163,6 +237,7 @@ function makeStyles(s: number) {
     convUnitTextActive: { color: '#FFF' },
     convValueArea: { flex: 1, marginLeft: Math.round(8 * s), paddingHorizontal: Math.round(10 * s), paddingVertical: Math.round(8 * s), borderRadius: 6, borderWidth: 1, borderColor: '#DDD', backgroundColor: '#FAFAFA', alignItems: 'flex-end' },
     convValueAreaActive: { borderColor: '#000', borderWidth: 2, backgroundColor: '#FFF' },
+    convValueScroll: { maxWidth: '100%' },
     convValueText: { fontSize: Math.round(26 * s), fontWeight: 'bold', color: '#000' },
     pickerHeader: { paddingHorizontal: pp, paddingVertical: 4, backgroundColor: '#F4F4F4', borderBottomWidth: 1, borderColor: '#DDD' },
     pickerHeaderText: { fontSize: Math.round(11 * s), fontWeight: 'bold', color: '#555', textAlign: 'center' },
@@ -170,6 +245,9 @@ function makeStyles(s: number) {
     pickerItemActive: { backgroundColor: '#000', borderColor: '#000' },
     pickerItemText: { fontSize: Math.round(13 * s), fontWeight: '500', color: '#000' },
     pickerItemTextActive: { color: '#FFF' },
+    finHint: { fontSize: Math.round(10 * s), color: '#555', fontWeight: '600', textAlign: 'center', marginBottom: 5 },
+    cfSummary: { flexDirection: 'row', justifyContent: 'space-between', borderTopWidth: 1, borderColor: '#DDD', paddingTop: 4, marginTop: 4 },
+    cfSummaryText: { fontSize: Math.round(10 * s), color: '#444', fontWeight: '600' },
   });
 }
 const baseStyles = makeStyles(1);
@@ -181,7 +259,7 @@ export default function CalcPanelPro({scale = 1}: {scale?: number}) {
   const PANEL_PADDING = Math.round(15 * scale);
   const BTN_GAP = Math.round(5 * scale);
   const BTN_HEIGHT = Math.round(44 * scale);
-  const styles = useMemo(() => makeStyles(scale), []);
+  const styles = useMemo(() => makeStyles(scale), [scale]);
   const [mode, setMode] = useState<CalcMode>('standard');
   const [angleUnit, setAngleUnit] = useState<AngleUnit>('deg');
   const [stack, setStack] = useState<[number, number, number, number]>([0, 0, 0, 0]);
@@ -193,6 +271,8 @@ export default function CalcPanelPro({scale = 1}: {scale?: number}) {
   const [gKeyState, setGKeyState] = useState(false);
   const [finRegs, setFinRegs] = useState<FinancialRegisters>({ n: null, i: null, pv: null, pmt: null, fv: null });
   const [cashFlows, setCashFlows] = useState<{v: number, n: number}[]>([]);
+  const [lastFinRecord, setLastFinRecord] = useState<FinRecord | null>(null);
+  const [finTape, setFinTape] = useState<FinTapeEntry[]>([]);
   const [lastX, setLastX] = useState(0);
   const [amortPeriodsTotal, setAmortPeriodsTotal] = useState(0);
   const [expression, setExpression] = useState('');
@@ -228,6 +308,44 @@ export default function CalcPanelPro({scale = 1}: {scale?: number}) {
 
   const handleClose = useCallback(() => { if (!inserting) PluginManager.closePluginView(); }, [inserting]);
 
+  const fmtFin = useCallback(
+    (value: number, dp = decimalPlaces) => formatNumber(value, dp, thousandsSep),
+    [decimalPlaces, thousandsSep],
+  );
+
+  const fmtFinTapeOperand = useCallback((value: number) => {
+    return Number.isInteger(value) ? value.toString() : fmtFin(value);
+  }, [fmtFin]);
+
+  const formatFinTape = useCallback((entries: FinTapeEntry[], result: number) => {
+    const maxEntryLength = entries.reduce((max, item) => Math.max(max, item.entry.length), 0);
+    const lines = entries.map(item => `${item.entry.padEnd(maxEntryLength)} -> ${fmtFin(item.total)}`);
+    lines.push('');
+    lines.push(`${fmtFin(result)} =`);
+    return lines.join('\n');
+  }, [fmtFin]);
+
+  const finLabel = useCallback((reg: keyof FinancialRegisters): string => {
+    const labels: Record<keyof FinancialRegisters, string> = {
+      n: 'n',
+      i: 'i%',
+      pv: 'PV',
+      pmt: 'PMT',
+      fv: 'FV',
+    };
+    return labels[reg];
+  }, []);
+
+  const tvmLine = useCallback(
+    (regs: FinancialRegisters, target?: keyof FinancialRegisters) => {
+      return (Object.keys(regs) as (keyof FinancialRegisters)[])
+        .filter(key => regs[key] !== null && key !== target)
+        .map(key => `${finLabel(key)}=${key === 'i' ? fmtFin(regs[key] as number, 4) + '%' : fmtFin(regs[key] as number)}`)
+        .join(', ');
+    },
+    [finLabel, fmtFin],
+  );
+
   const handleHistoryPrev = () => {
     if (history.length === 0) return;
     if (historyIdx === null) {
@@ -259,7 +377,7 @@ export default function CalcPanelPro({scale = 1}: {scale?: number}) {
 
   const getCurrentValue = (): number | null => {
     if (evaluated && stdResult !== null) return stdResult;
-    try { return evaluateExpr(expression || '0', angleUnit); } catch { return null; }
+    try { return evaluateExpr(balanceExpression(expression || '0'), angleUnit); } catch { return null; }
   };
   const handleMPlus  = () => { const v = getCurrentValue(); if (v !== null) setMemoryRegister(p => p + v); };
   const handleMMinus = () => { const v = getCurrentValue(); if (v !== null) setMemoryRegister(p => p - v); };
@@ -279,6 +397,15 @@ export default function CalcPanelPro({scale = 1}: {scale?: number}) {
     const base = cat.units[fromIdx].toBase(num);
     const result = cat.units[toIdx].fromBase(base);
     return parseFloat(result.toPrecision(10)).toString();
+  };
+
+  const formatConvDisplay = (value: string): string => {
+    if (!value || value === '-') return value || '0';
+    const num = parseFloat(value);
+    if (!Number.isFinite(num)) return value;
+    const plain = formatNumber(num, decimalPlaces, thousandsSep);
+    if (plain.length <= 16) return plain;
+    return num.toExponential(Math.min(6, Math.max(0, decimalPlaces)));
   };
 
   const handleConvDigit = (d: string) => {
@@ -368,8 +495,18 @@ export default function CalcPanelPro({scale = 1}: {scale?: number}) {
             setInputBuffer(prev => prev + d);
         }
     } else {
-      if (evaluated) { setExpression(d); setStdResult(null); setEvaluated(false); } 
-      else setExpression(prev => prev + d);
+      if (d === '.') {
+        if (evaluated) {
+          setExpression('0.');
+          setStdResult(null);
+          setEvaluated(false);
+        } else {
+          setExpression(prev => appendDecimalToExpression(prev));
+        }
+        return;
+      }
+      if (evaluated) { setExpression(d); setStdResult(null); setEvaluated(false); }
+      else setExpression(prev => appendDigitToExpression(prev, d));
     }
   };
 
@@ -383,18 +520,36 @@ export default function CalcPanelPro({scale = 1}: {scale?: number}) {
       if (op === '+') res = y + x;
       else if (op === '-') res = y - x;
       else if (op === '×') res = y * x;
-      else if (op === '÷') res = x === 0 ? 0 : y / x;
+      else if (op === '÷') {
+        if (x === 0) {
+          showError('Division by zero');
+          return;
+        }
+        res = y / x;
+      }
+      setLastFinRecord({
+        title: 'RPN arithmetic',
+        lines: [`${fmtFin(y)} ${op} ${fmtFin(x)} = ${fmtFin(res)}`],
+        result: res,
+      });
+      setFinTape(prev => [...prev, {entry: `${fmtFinTapeOperand(x)} ${op}`, total: res}]);
       setStack([res, stack[2], stack[3], stack[3]]);
       setInputBuffer(''); setIsEntering(false); setLiftEnabled(true);
     } else {
-      if (evaluated && stdResult !== null) { setExpression(stdResult.toString() + op); setStdResult(null); setEvaluated(false); }
-      else setExpression(prev => prev + op);
+      if (evaluated && stdResult !== null) { setExpression(appendOperatorToExpression(stdResult.toString(), op)); setStdResult(null); setEvaluated(false); }
+      else setExpression(prev => appendOperatorToExpression(prev, op));
     }
   };
 
   const handleEnter = () => {
     const val = isEntering ? parseFloat(inputBuffer || '0') : stack[0];
     setStack([val, val, stack[1], stack[2]]);
+    setLastFinRecord({
+      title: 'RPN enter',
+      lines: [`ENTER ${fmtFin(val)}`],
+      result: val,
+    });
+    setFinTape(prev => [...prev, {entry: `${fmtFinTapeOperand(val)} Enter`, total: val}]);
     setInputBuffer(''); setIsEntering(false); setLiftEnabled(false);
   };
 
@@ -402,6 +557,12 @@ export default function CalcPanelPro({scale = 1}: {scale?: number}) {
     if (isEntering) {
         const val = parseFloat(inputBuffer || '0');
         setFinRegs(prev => ({ ...prev, [reg]: val }));
+        setLastFinRecord({
+          title: 'TVM store',
+          lines: [`${finLabel(reg)} = ${reg === 'i' ? fmtFin(val, 4) + '%' : fmtFin(val)}`],
+          result: val,
+        });
+        setFinTape([]);
         setIsEntering(false); setInputBuffer(''); setLiftEnabled(true);
     } else {
         handleSolve(reg);
@@ -410,7 +571,26 @@ export default function CalcPanelPro({scale = 1}: {scale?: number}) {
 
   const handleSolve = (reg: keyof FinancialRegisters) => {
     try {
+      const knownInputs = (Object.keys(finRegs) as (keyof FinancialRegisters)[])
+        .filter(key => key !== reg && finRegs[key] !== null)
+        .length;
+      if (knownInputs < 3) {
+        showError('Set more TVM values');
+        return;
+      }
       const res = solveTVM(reg, finRegs);
+      if (!Number.isFinite(res)) {
+        showError('No solution');
+        return;
+      }
+      setLastFinRecord({
+        title: 'TVM solve',
+        lines: [
+          `${tvmLine(finRegs, reg)} -> ${finLabel(reg)} = ${reg === 'i' ? fmtFin(res, 4) + '%' : fmtFin(res)}`,
+        ],
+        result: res,
+      });
+      setFinTape([]);
       setFinRegs(prev => ({ ...prev, [reg]: res }));
       setStack(prev => [res, prev[1], prev[2], prev[3]]);
       setIsEntering(false); setInputBuffer(''); setLiftEnabled(true);
@@ -419,6 +599,7 @@ export default function CalcPanelPro({scale = 1}: {scale?: number}) {
 
   const solveNPV = () => {
     if (cashFlows.length === 0) { showError('No Cash Flows'); return; }
+    if (finRegs.i === null) { showError('Set i%'); return; }
     const i = (finRegs.i ?? 0) / 100;
     let npv = cashFlows[0].v;
     let period = 1;
@@ -428,11 +609,21 @@ export default function CalcPanelPro({scale = 1}: {scale?: number}) {
             period++;
         }
     }
+    setLastFinRecord({
+      title: 'NPV',
+      lines: [
+        `i=${fmtFin(finRegs.i ?? 0, 4)}%`,
+        ...cashFlows.map((cf, idx) => `CF${idx}=${fmtFin(cf.v)}${cf.n > 1 ? ` x${cf.n}` : ''}`),
+        `NPV = ${fmtFin(npv)}`,
+      ],
+      result: npv,
+    });
+    setFinTape([]);
     pushX(npv, true);
   };
 
   const solveIRR = () => {
-    if (cashFlows.length === 0) { showError('No Cash Flows'); return; }
+    if (cashFlows.length < 2) { showError('Need CF0 and CFj'); return; }
     let rate = 0.1; 
     for (let iteration = 0; iteration < 100; iteration++) {
         let npv = cashFlows[0].v;
@@ -449,6 +640,15 @@ export default function CalcPanelPro({scale = 1}: {scale?: number}) {
         if (Math.abs(dNpv) < 1e-12) break;
         const nextRate = rate - npv / dNpv;
         if (Math.abs(nextRate - rate) < 1e-10) {
+            setLastFinRecord({
+              title: 'IRR',
+              lines: [
+                ...cashFlows.map((cf, idx) => `CF${idx}=${fmtFin(cf.v)}${cf.n > 1 ? ` x${cf.n}` : ''}`),
+                `IRR = ${fmtFin(nextRate * 100, 4)}%`,
+              ],
+              result: nextRate * 100,
+            });
+            setFinTape([]);
             pushX(nextRate * 100, true);
             return;
         }
@@ -460,12 +660,24 @@ export default function CalcPanelPro({scale = 1}: {scale?: number}) {
   const handleCFo = () => {
     const val = isEntering ? parseFloat(inputBuffer || '0') : stack[0];
     setCashFlows([{v: val, n: 1}]);
+    setLastFinRecord({
+      title: 'Cash flow',
+      lines: [`CF0 = ${fmtFin(val)}`],
+      result: val,
+    });
+    setFinTape([]);
     setIsEntering(false); setInputBuffer(''); setLiftEnabled(true);
   };
 
   const handleCFj = () => {
     const val = isEntering ? parseFloat(inputBuffer || '0') : stack[0];
     setCashFlows(prev => [...prev, {v: val, n: 1}]);
+    setLastFinRecord({
+      title: 'Cash flow',
+      lines: [`CF${cashFlows.length} = ${fmtFin(val)}`],
+      result: val,
+    });
+    setFinTape([]);
     setIsEntering(false); setInputBuffer(''); setLiftEnabled(true);
   };
 
@@ -476,10 +688,22 @@ export default function CalcPanelPro({scale = 1}: {scale?: number}) {
         const last = prev[prev.length - 1];
         return [...prev.slice(0, -1), { ...last, n: val }];
     });
+    setLastFinRecord({
+      title: 'Cash flow count',
+      lines: [`N${cashFlows.length - 1} = ${fmtFin(val, 0)}`],
+      result: val,
+    });
+    setFinTape([]);
     setIsEntering(false); setInputBuffer(''); setLiftEnabled(true);
   };
 
   const handleLastX = () => {
+    setLastFinRecord({
+      title: 'Last X',
+      lines: [`Last X = ${fmtFin(lastX)}`],
+      result: lastX,
+    });
+    setFinTape(prev => [...prev, {entry: `${fmtFinTapeOperand(lastX)} Last X`, total: lastX}]);
     pushX(lastX, true);
   };
 
@@ -487,11 +711,13 @@ export default function CalcPanelPro({scale = 1}: {scale?: number}) {
     setStack([0, 0, 0, 0]);
     setIsEntering(false);
     setInputBuffer('');
+    setLastFinRecord(null);
+    setFinTape([]);
   };
 
   const handleAmort = () => {
     const periodsToAmort = isEntering ? parseFloat(inputBuffer || '0') : stack[0];
-    if (periodsToAmort <= 0 || !finRegs.pv || !finRegs.i || !finRegs.pmt) {
+    if (periodsToAmort <= 0 || finRegs.pv === null || finRegs.i === null || finRegs.pmt === null) {
         showError('Set n, i, PV, PMT'); return;
     }
     
@@ -511,6 +737,20 @@ export default function CalcPanelPro({scale = 1}: {scale?: number}) {
 
     setAmortPeriodsTotal(prev => prev + periodsToAmort);
     setFinRegs(prev => ({ ...prev, pv: balance }));
+    setLastFinRecord({
+      title: 'Amortization',
+      lines: [
+        `Periods=${fmtFin(periodsToAmort, 0)}`,
+        `PV=${fmtFin(finRegs.pv)}`,
+        `i=${fmtFin(finRegs.i, 4)}%`,
+        `PMT=${fmtFin(finRegs.pmt)}`,
+        `Principal=${fmtFin(totalPrincipal)}`,
+        `Interest=${fmtFin(totalInterest)}`,
+        `Balance=${fmtFin(balance)}`,
+      ],
+      result: totalPrincipal,
+    });
+    setFinTape([]);
     // X = Principal, Y = Interest, Z = Balance
     setStack([totalPrincipal, totalInterest, balance, stack[2]]);
     setIsEntering(false); setInputBuffer(''); setLiftEnabled(true);
@@ -533,39 +773,50 @@ export default function CalcPanelPro({scale = 1}: {scale?: number}) {
         if (stampMode === 'result') { text = formatNumber(valX, decimalPlaces, thousandsSep); }
         else {
             const parts = [];
-            if (cashFlows.length > 0) {
-                parts.push('--- CASH FLOWS ---');
-                cashFlows.forEach((cf, idx) => {
-                    parts.push(`CF${idx}: ${formatNumber(cf.v, 2, thousandsSep)}${cf.n > 1 ? ` (n:${cf.n})` : ''}`);
-                });
+            if (finTape.length > 0) {
+                text = formatFinTape(finTape, valX);
+            } else if (lastFinRecord) {
+                parts.push(`--- ${lastFinRecord.title.toUpperCase()} ---`);
+                parts.push(...lastFinRecord.lines);
+                parts.push(`Result: ${fmtFin(lastFinRecord.result)}`);
                 parts.push('------------------');
-            } else if (amortPeriodsTotal > 0) {
-                parts.push('--- AMORTIZATION ---');
+            }
+            if (finTape.length === 0 && cashFlows.length > 0) {
+                parts.push('Cash flows:');
+                cashFlows.forEach((cf, idx) => {
+                    parts.push(`CF${idx}: ${fmtFin(cf.v)}${cf.n > 1 ? ` (n:${cf.n})` : ''}`);
+                });
+            } else if (finTape.length === 0 && amortPeriodsTotal > 0 && !lastFinRecord) {
+                parts.push('Amortization:');
                 parts.push(`Periods: ${amortPeriodsTotal}`);
-                parts.push(`Principal: ${formatNumber(stack[0], decimalPlaces, thousandsSep)}`);
-                parts.push(`Interest: ${formatNumber(stack[1], decimalPlaces, thousandsSep)}`);
-                parts.push(`Remaining: ${formatNumber(stack[2], decimalPlaces, thousandsSep)}`);
-                parts.push('--------------------');
-            } else {
+                parts.push(`Principal: ${fmtFin(stack[0])}`);
+                parts.push(`Interest: ${fmtFin(stack[1])}`);
+                parts.push(`Remaining: ${fmtFin(stack[2])}`);
+            } else if (finTape.length === 0 && !lastFinRecord) {
                 if (finRegs.n !== null) parts.push(`n: ${formatNumber(finRegs.n, 2)}`);
                 if (finRegs.i !== null) parts.push(`i: ${formatNumber(finRegs.i, 2)}%`);
                 if (finRegs.pv !== null) parts.push(`PV: ${formatNumber(finRegs.pv, 2, thousandsSep)}`);
                 if (finRegs.pmt !== null) parts.push(`PMT: ${formatNumber(finRegs.pmt, 2, thousandsSep)}`);
                 if (finRegs.fv !== null) parts.push(`FV: ${formatNumber(finRegs.fv, 2, thousandsSep)}`);
-                parts.push('------------------');
             }
-            text = `${parts.join('\n')}\nResult: ${formatNumber(valX, decimalPlaces, thousandsSep)}`;
+            if (finTape.length === 0 && !lastFinRecord) {
+              parts.push(`Result: ${fmtFin(valX)}`);
+            }
+            if (finTape.length === 0) {
+              text = parts.join('\n');
+            }
         }
     } else {
       try {
-        const val = evaluated && stdResult !== null ? stdResult : evaluateExpr(expression || '0', angleUnit);
-        text = stampMode === 'result' ? formatNumber(val, decimalPlaces, thousandsSep) : `${expression} = ${formatNumber(val, decimalPlaces, thousandsSep)}`;
-      } catch (e) { showError('Error'); return; }
+        const balanced = balanceExpression(expression || '0');
+        const val = evaluated && stdResult !== null ? stdResult : evaluateExpr(balanced, angleUnit);
+        text = stampMode === 'result' ? formatNumber(val, decimalPlaces, thousandsSep) : `${balanced} = ${formatNumber(val, decimalPlaces, thousandsSep)}`;
+      } catch (e) { showError(calculationErrorMessage(e)); return; }
     }
     setInserting(true);
     try { await doInsert(text); PluginManager.closePluginView(); }
     catch (e) { showError('Insert failed'); } finally { setInserting(false); }
-  }, [inserting, mode, stack, inputBuffer, isEntering, finRegs, decimalPlaces, expression, stdResult, evaluated, stampMode, showError, amortPeriodsTotal, cashFlows, angleUnit, thousandsSep, convCatIdx, convFromIdx, convToIdx, convFromVal, convToVal]);
+  }, [inserting, mode, stack, inputBuffer, isEntering, finRegs, decimalPlaces, expression, stdResult, evaluated, stampMode, showError, amortPeriodsTotal, cashFlows, angleUnit, thousandsSep, convCatIdx, convFromIdx, convToIdx, convFromVal, convToVal, lastFinRecord, fmtFin, finTape, formatFinTape]);
 
   const handleShiftedAction = (fAction: () => void, gAction: () => void, normalAction: () => void) => {
     if (fKeyState) { fAction(); setFKeyState(false); }
@@ -589,14 +840,80 @@ export default function CalcPanelPro({scale = 1}: {scale?: number}) {
     }
   };
 
+  const appendExpressionToken = (token: string) => {
+    setError(null);
+    if (evaluated) {
+      setExpression(token);
+      setStdResult(null);
+      setEvaluated(false);
+    } else {
+      setExpression(prev => prev + token);
+    }
+  };
+
+  const closeParen = () => {
+    setError(null);
+    setExpression(prev => {
+      const base = evaluated && stdResult !== null ? stdResult.toString() : prev;
+      const opens = (base.match(/\(/g) ?? []).length;
+      const closes = (base.match(/\)/g) ?? []).length;
+      if (opens <= closes) {
+        return base;
+      }
+      const last = base[base.length - 1] ?? '';
+      if ('+-×÷^(. ,'.includes(last)) {
+        return base;
+      }
+      return base + ')';
+    });
+    setStdResult(null);
+    setEvaluated(false);
+  };
+
+  const appendExpressionSuffix = (token: string) => {
+    setError(null);
+    setExpression(prev => {
+      const base = evaluated && stdResult !== null ? stdResult.toString() : prev;
+      const last = base[base.length - 1] ?? '';
+      if (!base || '+-×÷^(. ,'.includes(last) || last === '%' || last === '!') {
+        return base;
+      }
+      return base + token;
+    });
+    setStdResult(null);
+    setEvaluated(false);
+  };
+
+  const appendModOperator = () => {
+    setError(null);
+    setExpression(prev => {
+      const base = evaluated && stdResult !== null ? stdResult.toString() : prev;
+      const last = base[base.length - 1] ?? '';
+      if (!base || '+-×÷^(. ,'.includes(last) || base.endsWith('mod')) {
+        return base;
+      }
+      return base + 'mod';
+    });
+    setStdResult(null);
+    setEvaluated(false);
+  };
+
   const handleEqual = () => {
     try {
-        const res = evaluateExpr(expression, angleUnit);
+        const balanced = balanceExpression(expression);
+        const res = evaluateExpr(balanced, angleUnit);
+        if (!Number.isFinite(res)) {
+          showError('Invalid input');
+          return;
+        }
         setStdResult(res);
         setEvaluated(true);
-        setHistory(prev => [...prev.slice(-19), expression]);
+        setExpression(balanced);
+        if (balanced.trim()) {
+          setHistory(prev => [...prev.slice(-19), balanced]);
+        }
         setHistoryIdx(null);
-    } catch (e) { showError('Error'); }
+    } catch (e) { showError(calculationErrorMessage(e)); }
   };
 
   const layouts = {
@@ -619,11 +936,11 @@ export default function CalcPanelPro({scale = 1}: {scale?: number}) {
         {label: '2', action: () => handleDigit('2')},
         {label: '3', action: () => handleDigit('3')},
         {label: '-', action: () => handleOperator('-'), variant: 'operator'},
-        {label: '%', action: () => setExpression(p => p + '%'), variant: 'utility'},
+        {label: '%', action: () => setExpression(p => appendPercentToExpression(p)), variant: 'utility'},
 
         {label: '+/-', action: () => {
             if (evaluated && stdResult !== null) setStdResult(-stdResult);
-            else setExpression(prev => prev.startsWith('-') ? prev.slice(1) : '-' + prev);
+            else setExpression(prev => toggleExpressionSign(prev));
         }, variant: 'utility'},
         {label: '0', action: () => handleDigit('0')},
         {label: '.', action: () => handleDigit('.'), variant: 'number'},
@@ -639,7 +956,14 @@ export default function CalcPanelPro({scale = 1}: {scale?: number}) {
             label: fKeyState ? 'n' : gKeyState ? 'n*12' : 'n', 
             action: () => handleShiftedAction(
                 () => handleFinReg('n'),
-                () => { const val = (isEntering ? parseFloat(inputBuffer || '0') : stack[0]) * 12; setFinRegs(prev => ({...prev, n: val})); pushX(val, true); },
+                () => {
+                  const input = isEntering ? parseFloat(inputBuffer || '0') : stack[0];
+                  const val = input * 12;
+                  setFinRegs(prev => ({...prev, n: val}));
+                  setLastFinRecord({title: 'TVM store', lines: [`n = ${fmtFin(input)} x 12 = ${fmtFin(val)}`], result: val});
+                  setFinTape([]);
+                  pushX(val, true);
+                },
                 () => handleFinReg('n')
             ), 
             variant: 'function'
@@ -648,7 +972,14 @@ export default function CalcPanelPro({scale = 1}: {scale?: number}) {
             label: fKeyState ? 'i' : gKeyState ? 'i/12' : 'i', 
             action: () => handleShiftedAction(
                 () => handleFinReg('i'),
-                () => { const val = (isEntering ? parseFloat(inputBuffer || '0') : stack[0]) / 12; setFinRegs(prev => ({...prev, i: val})); pushX(val, true); },
+                () => {
+                  const input = isEntering ? parseFloat(inputBuffer || '0') : stack[0];
+                  const val = input / 12;
+                  setFinRegs(prev => ({...prev, i: val}));
+                  setLastFinRecord({title: 'TVM store', lines: [`i% = ${fmtFin(input, 4)}% / 12 = ${fmtFin(val, 4)}%`], result: val});
+                  setFinTape([]);
+                  pushX(val, true);
+                },
                 () => handleFinReg('i')
             ), 
             variant: 'function'
@@ -699,11 +1030,11 @@ export default function CalcPanelPro({scale = 1}: {scale?: number}) {
         {label: '÷', action: () => handleOperator('÷'), variant: 'operator'},
         {label: 'AC', action: () => handleShiftedAction(
             () => handleClearStack(),
-            () => { setCashFlows([]); showError('CF Cleared'); },
+            () => { setCashFlows([]); setFinTape([]); setLastFinRecord({title: 'Cash flows cleared', lines: ['Cash-flow register cleared'], result: stack[0]}); showError('CF Cleared'); },
             () => {
                 setStack([0,0,0,0]); setInputBuffer(''); setLiftEnabled(true);
                 setFinRegs({n: null, i: null, pv: null, pmt: null, fv: null}); 
-                setCashFlows([]); setAmortPeriodsTotal(0);
+                setCashFlows([]); setAmortPeriodsTotal(0); setLastFinRecord(null); setFinTape([]);
             }
         ), variant: 'highlight'},
 
@@ -765,7 +1096,7 @@ export default function CalcPanelPro({scale = 1}: {scale?: number}) {
         {label: 'log2', action: () => handleSciFunc('log2'), variant: 'function'},
         {label: '+/-', action: () => {
             if (evaluated && stdResult !== null) setStdResult(-stdResult);
-            else setExpression(prev => prev.startsWith('-') ? prev.slice(1) : '-' + prev);
+            else setExpression(prev => toggleExpressionSign(prev));
         }, variant: 'utility'},
         {label: '0', action: () => handleDigit('0')},
         {label: '.', action: () => handleDigit('.'), variant: 'number'},
@@ -773,24 +1104,21 @@ export default function CalcPanelPro({scale = 1}: {scale?: number}) {
 
         // Row 5: Exponentials + power
         {label: 'eˣ',  action: () => handleSciFunc('e^'),          variant: 'function'},
-        {label: '10ˣ', action: () => setExpression(p => p + '10^'), variant: 'function'},
-        {label: 'xʸ',  action: () => setExpression(p => p + '^'),   variant: 'function'},
+        {label: '10ˣ', action: () => appendExpressionToken('10^'), variant: 'function'},
+        {label: 'xʸ',  action: () => setExpression(p => appendOperatorToExpression(p, '^')),   variant: 'function'},
         {label: '⌫', action: () => setExpression(p => p.slice(0, -1)), variant: 'utility'},
         {label: 'AC', action: () => { setExpression(''); setStdResult(null); setEvaluated(false); }, variant: 'highlight'},
-        {label: '%', action: () => setExpression(p => p + '%'), variant: 'utility'},
+        {label: '%', action: () => setExpression(p => appendPercentToExpression(p)), variant: 'utility'},
         {label: '=', action: handleEqual, variant: 'equals'},
 
         // Row 6: Power shortcuts, factorial, parens, mod
-        {label: 'x²', action: () => setExpression(p => p + '²'), variant: 'function'},
-        {label: 'x³', action: () => setExpression(p => p + '³'), variant: 'function'},
-        {label: 'x!', action: () => setExpression(p => p + '!'), variant: 'function'},
-        {label: '(', action: () => setExpression(p => p + '('), variant: 'function'},
-        {label: ')', action: () => setExpression(p => p + ')'), variant: 'function'},
-        {label: ',', action: () => setExpression(p => p + ','), variant: 'number'},
-        {label: 'mod', action: () => {
-            if (evaluated && stdResult !== null) { setExpression(stdResult.toString() + 'mod'); setStdResult(null); setEvaluated(false); }
-            else setExpression(p => p + 'mod');
-        }, variant: 'function'},
+        {label: 'x²', action: () => appendExpressionSuffix('²'), variant: 'function'},
+        {label: 'x³', action: () => appendExpressionSuffix('³'), variant: 'function'},
+        {label: 'x!', action: () => appendExpressionSuffix('!'), variant: 'function'},
+        {label: '(', action: () => appendExpressionToken('('), variant: 'function'},
+        {label: ')', action: closeParen, variant: 'function'},
+        {label: ',', action: () => appendExpressionToken(','), variant: 'number'},
+        {label: 'mod', action: appendModOperator, variant: 'function'},
 
         // Row 7: Roots + Memory
         {label: '√',   action: () => handleSciFunc('√'),  variant: 'function'},
@@ -802,13 +1130,13 @@ export default function CalcPanelPro({scale = 1}: {scale?: number}) {
         {label: 'M+',  action: handleMPlus,  variant: 'utility'},
 
         // Row 8: Misc
-        {label: '1/x', action: () => setExpression(p => p + '1/('), variant: 'function'},
+        {label: '1/x', action: () => appendExpressionToken('1/('), variant: 'function'},
         {label: '|x|', action: () => handleSciFunc('abs'),           variant: 'function'},
         {label: 'Rand', action: () => handleSciFunc('rand'),          variant: 'function'},
-        {label: 'π', action: () => setExpression(p => p + 'π'), variant: 'function'},
-        {label: 'e', action: () => setExpression(p => p + 'e'), variant: 'function'},
+        {label: 'π', action: () => appendExpressionToken('π'), variant: 'function'},
+        {label: 'e', action: () => appendExpressionToken('e'), variant: 'function'},
         {label: angleUnit === 'deg' ? 'Rad' : 'Deg', action: () => setAngleUnit(angleUnit === 'deg' ? 'rad' : 'deg'), variant: 'utility'},
-        {label: 'EE', action: () => setExpression(p => p + 'E'), variant: 'function'},
+        {label: 'EE', action: () => appendExpressionSuffix('E'), variant: 'function'},
       ]
     }
   };
@@ -825,7 +1153,7 @@ export default function CalcPanelPro({scale = 1}: {scale?: number}) {
             <Text style={styles.title}>Calculator</Text>
             <View style={styles.modeCapsule}>
               {(['standard', 'conversion', 'financial', 'scientific'] as CalcMode[]).map(m => (
-                <Pressable key={m} onPress={() => { setMode(m); setError(null); setConvPicker(null); }} style={[styles.modeTab, mode === m && styles.modeTabActive]}>
+                <Pressable key={m} onPress={() => { setMode(m); setError(null); setConvPicker(null); setFKeyState(false); setGKeyState(false); }} style={[styles.modeTab, mode === m && styles.modeTabActive]}>
                   <Text style={[styles.modeTabText, mode === m && styles.modeTabTextActive]}>{MODE_LABELS[m]}</Text>
                 </Pressable>
               ))}
@@ -837,6 +1165,11 @@ export default function CalcPanelPro({scale = 1}: {scale?: number}) {
           <View style={styles.displayArea}>
             {mode === 'financial' ? (
                 <View style={styles.finDisplay}>
+                    {(fKeyState || gKeyState) && (
+                      <Text style={styles.finHint}>
+                        {fKeyState ? 'f shift: n/i store, NPV, IRR, FV' : 'g shift: n x12, i /12, CFo, CFj, Nj'}
+                      </Text>
+                    )}
                     <View style={styles.regRow}>
                         <RegItem label="n" val={finRegs.n} scale={scale} />
                         <RegItem label="i%" val={finRegs.i} scale={scale} />
@@ -853,6 +1186,18 @@ export default function CalcPanelPro({scale = 1}: {scale?: number}) {
                             <Text style={styles.stackX}>{isEntering ? (inputBuffer || '0') : formatNumber(stack[0], decimalPlaces, thousandsSep)}</Text>
                         </View>
                     </View>
+                    {(cashFlows.length > 0 || amortPeriodsTotal > 0) && (
+                      <View style={styles.cfSummary}>
+                        <Text style={styles.cfSummaryText}>
+                          {cashFlows.length > 0 ? `CF: ${cashFlows.length}` : `AMORT: ${amortPeriodsTotal} periods`}
+                        </Text>
+                        <Text style={styles.cfSummaryText}>
+                          {cashFlows.length > 0
+                            ? `Last ${cashFlows[cashFlows.length - 1].n}x ${formatNumber(cashFlows[cashFlows.length - 1].v, decimalPlaces, thousandsSep)}`
+                            : `Bal ${formatNumber(stack[2], decimalPlaces, thousandsSep)}`}
+                        </Text>
+                      </View>
+                    )}
                 </View>
             ) : mode === 'conversion' ? (
                 <View style={styles.convDisplay}>
@@ -866,11 +1211,13 @@ export default function CalcPanelPro({scale = 1}: {scale?: number}) {
                       <Text style={[styles.convUnitText, convPicker === 'from' && styles.convUnitTextActive]}>{CONV_CATEGORIES[convCatIdx].units[convFromIdx].label} ▼</Text>
                     </Pressable>
                     <Pressable onPress={() => { setConvActive('from'); setConvPicker(null); }} style={[styles.convValueArea, convActive === 'from' && convPicker === null && styles.convValueAreaActive]}>
-                      <Text style={styles.convValueText}>
-                        {convActive === 'from'
-                          ? (convFromVal || '0')
-                          : (convFromVal ? formatNumber(parseFloat(convFromVal), decimalPlaces, thousandsSep) : '0')}
-                      </Text>
+                      <ScrollView horizontal style={styles.convValueScroll}>
+                        <Text style={styles.convValueText}>
+                          {convActive === 'from'
+                            ? (convFromVal || '0')
+                            : formatConvDisplay(convFromVal)}
+                        </Text>
+                      </ScrollView>
                     </Pressable>
                   </View>
                   <View style={styles.convRow}>
@@ -878,16 +1225,22 @@ export default function CalcPanelPro({scale = 1}: {scale?: number}) {
                       <Text style={[styles.convUnitText, convPicker === 'to' && styles.convUnitTextActive]}>{CONV_CATEGORIES[convCatIdx].units[convToIdx].label} ▼</Text>
                     </Pressable>
                     <Pressable onPress={() => { setConvActive('to'); setConvPicker(null); }} style={[styles.convValueArea, convActive === 'to' && convPicker === null && styles.convValueAreaActive]}>
-                      <Text style={styles.convValueText}>
-                        {convActive === 'to'
-                          ? (convToVal || '0')
-                          : (convToVal ? formatNumber(parseFloat(convToVal), decimalPlaces, thousandsSep) : '0')}
-                      </Text>
+                      <ScrollView horizontal style={styles.convValueScroll}>
+                        <Text style={styles.convValueText}>
+                          {convActive === 'to'
+                            ? (convToVal || '0')
+                            : formatConvDisplay(convToVal)}
+                        </Text>
+                      </ScrollView>
                     </Pressable>
                   </View>
                 </View>
             ) : (
                 <View style={styles.stdDisplay}>
+                  <ScrollView
+                    style={styles.displayScroll}
+                    contentContainerStyle={styles.displayScrollContent}
+                    persistentScrollbar>
                     <View style={{flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', width: '100%', marginBottom: 5}}>
                         {mode === 'scientific' && (
                           <View style={{flexDirection: 'row'}}>
@@ -898,6 +1251,7 @@ export default function CalcPanelPro({scale = 1}: {scale?: number}) {
                         <Text style={styles.displayExpr}>{evaluated ? expression + ' =' : ''}</Text>
                     </View>
                     <Text style={styles.displayMain}>{evaluated ? (stdResult !== null ? formatNumber(stdResult, decimalPlaces, thousandsSep) : '0') : expression || '0'}</Text>
+                  </ScrollView>
                 </View>
             )}
           </View>
@@ -1031,4 +1385,3 @@ function CalcBtn({label, onPress, variant = 'number', pos, scale = 1}: {label: s
     </Pressable>
   );
 }
-

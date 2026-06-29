@@ -12,6 +12,7 @@ SnCalc Pro is a calculator plugin for the Supernote Nomad and Manta (A5X2) with 
 ### Standard
 
 A 5-column algebraic calculator for everyday arithmetic. Supports parentheses, percentage, and standard operator precedence.
+The entry field scrolls for long expressions and rejects repeated operator runs such as `+++` or `---`.
 
 ### Conversion
 
@@ -23,6 +24,7 @@ Tap the category label to switch categories. Tap either unit label to open a sel
 
 An RPN financial calculator modeled on HP 12C conventions.
 
+- **RPN tape:** Full Record insert for ordinary RPN arithmetic stamps each entered value/operator with a running total
 - **TVM:** Solve for any of n, i, PV, PMT, or FV by entering four known values and tapping the unknown
 - **Amortization:** Enter the number of periods in X, press AMORT to compute principal, interest, and remaining balance
 - **Cash Flows / NPV / IRR:** Use g + PV for CFo, g + PMT for CFj, f + PV for NPV, f + PMT for IRR
@@ -42,6 +44,7 @@ A 7-column algebraic calculator.
 - Memory: MC, MR, M-, M+
 - DEG/RAD toggle; scientific notation entry via EE
 - Implicit multiplication is supported: 2pi, 3sin(30), and 4(2+1) are all valid expressions
+The entry field scrolls for long expressions and reports common domain/input errors instead of silently returning invalid values.
 
 ## Bottom Bar Controls
 
@@ -71,13 +74,14 @@ The output toggle controls how results are stamped. The labels change depending 
 **Full Record** stamps:
 
 - Standard / Scientific: the full expression and result
+- Financial RPN arithmetic: a tape-style record with each entry/operator and the running total
 - Financial TVM: all register values (n, i, PV, PMT, FV)
 - Financial IRR / NPV: the full cash flow schedule and result
 - Financial Amortization: periods, principal, interest, and remaining balance
 
 The selected stamp mode is remembered for the rest of the session, so it stays set even after closing and reopening the calculator.
 
-Smart placement detects the lowest existing element on the page and inserts below it.
+Smart placement detects the lowest existing element on the page and inserts below it when there is room. Insert placement is calibrated for Nomad and Manta page coordinates so stamped results stay visible on the current page.
 
 ## Installation
 

@@ -1,4 +1,65 @@
-import { evaluateExpr, solveTVM } from './calculatorLogic';
+import {
+  appendDecimalToExpression,
+  appendDigitToExpression,
+  appendOperatorToExpression,
+  appendPercentToExpression,
+  balanceExpression,
+  calculationErrorMessage,
+  evaluateExpr,
+  solveTVM,
+  toggleExpressionSign,
+} from './calculatorLogic';
+
+describe('Expression input helpers', () => {
+  test('replaces repeated binary operators instead of creating nonsense', () => {
+    expect(appendOperatorToExpression('', '+')).toBe('');
+    expect(appendOperatorToExpression('', '-')).toBe('-');
+    expect(appendOperatorToExpression('12+', '+')).toBe('12+');
+    expect(appendOperatorToExpression('12+', '×')).toBe('12×');
+    expect(appendOperatorToExpression('12×-', '+')).toBe('12+');
+    const dashed = ['-', '-', '-'].reduce(appendOperatorToExpression, '12');
+    const plussed = ['+', '+', '+'].reduce(appendOperatorToExpression, '12');
+    expect(dashed).toBe('12-');
+    expect(plussed).toBe('12+');
+  });
+
+  test('allows a unary minus after multiplication or division', () => {
+    expect(appendOperatorToExpression('12×', '-')).toBe('12×-');
+    expect(evaluateExpr('12×-3', 'deg')).toBe(-36);
+  });
+
+  test('keeps one decimal point per number segment', () => {
+    expect(appendDecimalToExpression('')).toBe('0.');
+    expect(appendDecimalToExpression('12')).toBe('12.');
+    expect(appendDecimalToExpression('12.3')).toBe('12.3');
+    expect(appendDecimalToExpression('12+')).toBe('12+0.');
+  });
+
+  test('normalizes leading zeroes while entering digits', () => {
+    expect(appendDigitToExpression('0', '7')).toBe('7');
+    expect(appendDigitToExpression('-0', '7')).toBe('-7');
+    expect(appendDigitToExpression('10+', '0')).toBe('10+0');
+  });
+
+  test('only appends percent after a value', () => {
+    expect(appendPercentToExpression('')).toBe('');
+    expect(appendPercentToExpression('12+')).toBe('12+');
+    expect(appendPercentToExpression('12')).toBe('12%');
+    expect(appendPercentToExpression('12%')).toBe('12%');
+  });
+
+  test('toggles only the current term sign', () => {
+    expect(toggleExpressionSign('12+3')).toBe('12+-3');
+    expect(toggleExpressionSign('12+-3')).toBe('12+3');
+    expect(toggleExpressionSign('')).toBe('-');
+  });
+
+  test('auto-balances open parentheses only when expression can be evaluated', () => {
+    expect(balanceExpression('sin(90')).toBe('sin(90)');
+    expect(balanceExpression('sin(')).toBe('sin(');
+    expect(balanceExpression('12+')).toBe('12+');
+  });
+});
 
 describe('Scientific Parser (evaluateExpr)', () => {
   test('evaluates basic arithmetic', () => {
@@ -16,6 +77,30 @@ describe('Scientific Parser (evaluateExpr)', () => {
 
   test('handles n-th roots (multi-argument)', () => {
     expect(evaluateExpr('ʸ√(64, 6)', 'deg')).toBe(2);
+  });
+
+  test('uses right-associative powers', () => {
+    expect(evaluateExpr('2^3^2', 'deg')).toBe(512);
+  });
+
+  test('rejects incomplete exponent notation', () => {
+    expect(() => evaluateExpr('1E', 'deg')).toThrow();
+  });
+
+  test('rejects invalid factorial values', () => {
+    expect(() => evaluateExpr('2.5!', 'deg')).toThrow();
+    expect(() => evaluateExpr('-3!', 'deg')).toThrow();
+  });
+
+  test('reports common scientific domain errors clearly', () => {
+    expect(() => evaluateExpr('√(-1)', 'deg')).toThrow('Domain');
+    expect(() => evaluateExpr('asin(2)', 'deg')).toThrow('Domain');
+    expect(calculationErrorMessage(new Error('Domain'))).toBe('Domain error');
+    expect(calculationErrorMessage(new Error('Expect )'))).toBe('Missing )');
+  });
+
+  test('supports odd roots of negative numbers', () => {
+    expect(evaluateExpr('ʸ√(-8, 3)', 'deg')).toBe(-2);
   });
 
   test('respects angle units for trig', () => {
