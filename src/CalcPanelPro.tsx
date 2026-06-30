@@ -32,6 +32,7 @@ type CalcMode = 'standard' | 'conversion' | 'financial' | 'scientific';
 const MODE_LABELS: Record<CalcMode, string> = { standard: 'STD', conversion: 'CONV', financial: 'FIN', scientific: 'SCI' };
 type StampMode = 'result' | 'expression';
 type ApiRes<T> = {success: boolean; result?: T; error?: {message?: string}} | null | undefined;
+export type InsertAnchorRect = {left: number; top: number; right: number; bottom: number};
 type FinRecord = {
   title: string;
   lines: string[];
@@ -117,7 +118,7 @@ async function findInsertTop(filePath: string, pageNum: number, pageHeight: numb
   return clamp(pageHeight - BOTTOM_MARGIN - boxHeight, PAGE_EDGE_MARGIN, lowestSafeTop);
 }
 
-async function doInsert(text: string): Promise<void> {
+export async function doInsert(text: string, anchorRect?: InsertAnchorRect): Promise<void> {
   let pageWidth = DEFAULT_PAGE_WIDTH, pageHeight = DEFAULT_PAGE_HEIGHT, filePath: string | undefined, pageNum: number | undefined;
   try {
     const pathRes = (await PluginCommAPI.getCurrentFilePath()) as ApiRes<string>;
@@ -141,15 +142,19 @@ async function doInsert(text: string): Promise<void> {
     ? Math.max(MIN_STAMP_FONT_SIZE, Math.floor(maxBoxHeight / lineCount) - LINE_HEIGHT_PAD)
     : STAMP_FONT_SIZE;
   const boxHeight = Math.min(lineCount * (stampFontSize + LINE_HEIGHT_PAD), maxBoxHeight);
-  const fallbackTop = clamp(
-    pageHeight - BOTTOM_MARGIN - boxHeight,
-    PAGE_EDGE_MARGIN,
-    Math.max(PAGE_EDGE_MARGIN, pageHeight - PAGE_EDGE_MARGIN - boxHeight),
-  );
-  const top = (filePath !== undefined && pageNum !== undefined) ? await findInsertTop(filePath, pageNum, pageHeight, boxHeight) : fallbackTop;
-  const left = Math.min(LEFT_MARGIN, Math.max(PAGE_EDGE_MARGIN, Math.floor(pageWidth * 0.12)));
+  const maxLeft = Math.max(PAGE_EDGE_MARGIN, pageWidth - PAGE_EDGE_MARGIN - stampFontSize * 6);
+  const preferredLeft = anchorRect
+    ? anchorRect.left
+    : Math.min(LEFT_MARGIN, Math.max(PAGE_EDGE_MARGIN, Math.floor(pageWidth * 0.12)));
+  const left = clamp(preferredLeft, PAGE_EDGE_MARGIN, maxLeft);
   const availableWidth = Math.max(stampFontSize * 6, pageWidth - left - PAGE_EDGE_MARGIN);
   const boxWidth = Math.min(Math.max(stampFontSize * 6, Math.ceil(maxLineLength * stampFontSize * 0.7)), availableWidth);
+  const maxTop = Math.max(PAGE_EDGE_MARGIN, pageHeight - PAGE_EDGE_MARGIN - boxHeight);
+  const anchoredTop = anchorRect
+    ? clamp(anchorRect.bottom + Math.round(SMART_PLACEMENT_GAP / 2), PAGE_EDGE_MARGIN, maxTop)
+    : null;
+  const fallbackTop = clamp(pageHeight - BOTTOM_MARGIN - boxHeight, PAGE_EDGE_MARGIN, maxTop);
+  const top = anchoredTop ?? ((filePath !== undefined && pageNum !== undefined) ? await findInsertTop(filePath, pageNum, pageHeight, boxHeight) : fallbackTop);
 
   const safeRect = { left, top, right: left + boxWidth, bottom: top + boxHeight };
   const res = (await PluginNoteAPI.insertText({ textContentFull: text, textRect: safeRect, fontSize: stampFontSize, textBold: 1, textItalics: 0, textAlign: 0, textEditable: 1, showLassoAfterInsert: true })) as ApiRes<boolean>;
@@ -165,6 +170,9 @@ function makeStyles(s: number) {
     panel: { width: Math.round(480 * s), backgroundColor: '#FFFFFF', borderRadius: Math.round(12 * s), borderWidth: 1.5, borderColor: '#000000' },
     header: { paddingHorizontal: Math.round(10 * s), paddingVertical: Math.round(6 * s), flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
     title: { fontSize: Math.round(18 * s), fontWeight: 'bold' },
+    headerActions: { flexDirection: 'row', alignItems: 'center' },
+    compactBtn: { paddingHorizontal: Math.round(8 * s), paddingVertical: Math.round(6 * s), borderRadius: 4, borderWidth: 1, borderColor: '#000', marginRight: Math.round(6 * s) },
+    compactBtnText: { fontSize: Math.round(10 * s), fontWeight: 'bold', color: '#000' },
     modeCapsule: { flexDirection: 'row', backgroundColor: '#F0F0F0', borderRadius: 20, padding: 2 },
     modeTab: { paddingHorizontal: Math.round(8 * s), paddingVertical: Math.round(4 * s), borderRadius: 18 },
     modeTabActive: { backgroundColor: '#000000' },
@@ -191,6 +199,11 @@ function makeStyles(s: number) {
     displayScrollContent: { flexGrow: 1, alignItems: 'flex-end', justifyContent: 'flex-end' },
     displayExpr: { fontSize: Math.round(16 * s), color: '#888', marginBottom: 10 },
     displayMain: { fontSize: Math.round(44 * s), fontWeight: 'bold', color: '#000' },
+    compactDisplay: { minHeight: Math.round(48 * s), paddingHorizontal: Math.round(12 * s), paddingVertical: Math.round(7 * s), backgroundColor: '#FDFDFD', justifyContent: 'center' },
+    compactDisplayRow: { flexDirection: 'row', alignItems: 'center' },
+    compactModeLabel: { minWidth: Math.round(44 * s), fontSize: Math.round(12 * s), fontWeight: 'bold', color: '#555' },
+    compactDisplayScroll: { flex: 1 },
+    compactDisplayText: { fontSize: Math.round(22 * s), fontWeight: 'bold', color: '#000' },
     errorBanner: { padding: 4, backgroundColor: '#000', margin: 4, borderRadius: 4 },
     errorText: { color: '#FFF', fontSize: Math.round(11 * s), textAlign: 'center' },
     grid: { paddingHorizontal: pp, paddingVertical: 5 },
@@ -254,13 +267,14 @@ const baseStyles = makeStyles(1);
 
 // ─── Component ───────────────────────────────────────────────────────────────
 
-export default function CalcPanelPro({scale = 1}: {scale?: number}) {
+export default function CalcPanelPro({scale = 1, initialExpression = ''}: {scale?: number; initialExpression?: string}) {
   const PANEL_WIDTH = Math.round(480 * scale);
   const PANEL_PADDING = Math.round(15 * scale);
   const BTN_GAP = Math.round(5 * scale);
   const BTN_HEIGHT = Math.round(44 * scale);
   const styles = useMemo(() => makeStyles(scale), [scale]);
   const [mode, setMode] = useState<CalcMode>('standard');
+  const [compactMode, setCompactMode] = useState(false);
   const [angleUnit, setAngleUnit] = useState<AngleUnit>('deg');
   const [stack, setStack] = useState<[number, number, number, number]>([0, 0, 0, 0]);
   const [inputBuffer, setInputBuffer] = useState('');
@@ -275,7 +289,7 @@ export default function CalcPanelPro({scale = 1}: {scale?: number}) {
   const [finTape, setFinTape] = useState<FinTapeEntry[]>([]);
   const [lastX, setLastX] = useState(0);
   const [amortPeriodsTotal, setAmortPeriodsTotal] = useState(0);
-  const [expression, setExpression] = useState('');
+  const [expression, setExpression] = useState(initialExpression);
   const [stdResult, setStdResult] = useState<number | null>(null);
   const [evaluated, setEvaluated] = useState(false);
   const [stampMode, setStampMode] = useState<StampMode>(prefs.stampMode);
@@ -300,6 +314,16 @@ export default function CalcPanelPro({scale = 1}: {scale?: number}) {
   useEffect(() => { prefs.decimalPlaces = decimalPlaces; }, [decimalPlaces]);
   useEffect(() => { prefs.thousandsSep = thousandsSep; }, [thousandsSep]);
 
+  useEffect(() => {
+    if (initialExpression) {
+      setMode('standard');
+      setExpression(initialExpression);
+      setStdResult(null);
+      setEvaluated(false);
+      setError(null);
+    }
+  }, [initialExpression]);
+
   const showError = useCallback((msg: string) => {
     setError(msg);
     if (errorTimerRef.current) clearTimeout(errorTimerRef.current);
@@ -307,6 +331,24 @@ export default function CalcPanelPro({scale = 1}: {scale?: number}) {
   }, []);
 
   const handleClose = useCallback(() => { if (!inserting) PluginManager.closePluginView(); }, [inserting]);
+
+  const compactDisplayValue = useMemo(() => {
+    if (mode === 'financial') {
+      return isEntering ? (inputBuffer || '0') : formatNumber(stack[0], decimalPlaces, thousandsSep);
+    }
+    if (mode === 'conversion') {
+      if (convActive === 'from') {
+        const fromUnit = CONV_CATEGORIES[convCatIdx].units[convFromIdx].label;
+        return `${convFromVal || '0'} ${fromUnit}`;
+      }
+      const toUnit = CONV_CATEGORIES[convCatIdx].units[convToIdx].label;
+      return `${convToVal || '0'} ${toUnit}`;
+    }
+    if (evaluated && stdResult !== null) {
+      return formatNumber(stdResult, decimalPlaces, thousandsSep);
+    }
+    return expression || '0';
+  }, [mode, isEntering, inputBuffer, stack, decimalPlaces, thousandsSep, convActive, convCatIdx, convFromIdx, convToIdx, convFromVal, convToVal, evaluated, stdResult, expression]);
 
   const fmtFin = useCallback(
     (value: number, dp = decimalPlaces) => formatNumber(value, dp, thousandsSep),
@@ -1158,10 +1200,25 @@ export default function CalcPanelPro({scale = 1}: {scale?: number}) {
                 </Pressable>
               ))}
             </View>
-            <Pressable onPress={handleClose} style={styles.closeBtn}><Text style={styles.closeText}>✕</Text></Pressable>
+            <View style={styles.headerActions}>
+              <Pressable onPress={() => setCompactMode(p => !p)} style={styles.compactBtn}>
+                <Text style={styles.compactBtnText}>{compactMode ? 'Full' : 'Compact'}</Text>
+              </Pressable>
+              <Pressable onPress={handleClose} style={styles.closeBtn}><Text style={styles.closeText}>✕</Text></Pressable>
+            </View>
           </View>
           <View style={styles.divider} />
           
+          {compactMode ? (
+            <View style={styles.compactDisplay}>
+              <View style={styles.compactDisplayRow}>
+                <Text style={styles.compactModeLabel}>{MODE_LABELS[mode]}</Text>
+                <ScrollView horizontal style={styles.compactDisplayScroll}>
+                  <Text style={styles.compactDisplayText}>{compactDisplayValue}</Text>
+                </ScrollView>
+              </View>
+            </View>
+          ) : (
           <View style={styles.displayArea}>
             {mode === 'financial' ? (
                 <View style={styles.finDisplay}>
@@ -1255,6 +1312,7 @@ export default function CalcPanelPro({scale = 1}: {scale?: number}) {
                 </View>
             )}
           </View>
+          )}
 
           <View style={styles.divider} />
           {error && <View style={styles.errorBanner}><Text style={styles.errorText}>{error}</Text></View>}
@@ -1323,30 +1381,34 @@ export default function CalcPanelPro({scale = 1}: {scale?: number}) {
               ))}
             </View>
           )}
-          <View style={styles.divider} />
-          <View style={styles.bottomArea}>
-            <View style={styles.controlRow}>
-              <View style={styles.controlGroup}>
-                <Pressable onPress={handleHistoryPrev} style={styles.controlBtn}><Text style={styles.controlBtnText}>◀</Text></Pressable>
-                <Text style={styles.controlLabel}>Hist</Text>
-                <Pressable onPress={handleHistoryNext} style={styles.controlBtn}><Text style={styles.controlBtnText}>▶</Text></Pressable>
+          {!compactMode && (
+            <>
+              <View style={styles.divider} />
+              <View style={styles.bottomArea}>
+                <View style={styles.controlRow}>
+                  <View style={styles.controlGroup}>
+                    <Pressable onPress={handleHistoryPrev} style={styles.controlBtn}><Text style={styles.controlBtnText}>◀</Text></Pressable>
+                    <Text style={styles.controlLabel}>Hist</Text>
+                    <Pressable onPress={handleHistoryNext} style={styles.controlBtn}><Text style={styles.controlBtnText}>▶</Text></Pressable>
+                  </View>
+                  <View style={styles.controlGroup}>
+                    <Pressable onPress={() => setDecimalPlaces(p => Math.max(0, p - 1))} style={styles.controlBtn}><Text style={styles.controlBtnText}>−</Text></Pressable>
+                    <Text style={styles.controlLabel}>{decimalPlaces}dp</Text>
+                    <Pressable onPress={() => setDecimalPlaces(p => Math.min(8, p + 1))} style={styles.controlBtn}><Text style={styles.controlBtnText}>+</Text></Pressable>
+                  </View>
+                  <Pressable onPress={() => setThousandsSep(p => !p)} style={[styles.controlBtn, styles.controlBtnWide, thousandsSep && styles.controlBtnActive]}>
+                    <Text style={[styles.controlBtnText, thousandsSep && styles.controlBtnTextActive]}>,000</Text>
+                  </Pressable>
+                </View>
+                <View style={styles.toggleRow}>
+                  <Pressable style={[styles.toggleBtn, stampMode === 'result' && styles.toggleBtnActive]} onPress={() => setStampMode('result')}><Text style={[styles.toggleText, stampMode === 'result' && styles.toggleTextActive]}>{mode === 'conversion' ? 'No label' : 'Result only'}</Text></Pressable>
+                  <View style={styles.toggleBtnSpacer} />
+                  <Pressable style={[styles.toggleBtn, stampMode === 'expression' && styles.toggleBtnActive]} onPress={() => setStampMode('expression')}><Text style={[styles.toggleText, stampMode === 'expression' && styles.toggleTextActive]}>{mode === 'conversion' ? 'With label' : 'Full record'}</Text></Pressable>
+                </View>
+                <Pressable onPress={handleInsert} disabled={inserting} style={styles.insertBtn}><Text style={styles.insertBtnText}>{inserting ? 'Inserting...' : 'Insert'}</Text></Pressable>
               </View>
-              <View style={styles.controlGroup}>
-                <Pressable onPress={() => setDecimalPlaces(p => Math.max(0, p - 1))} style={styles.controlBtn}><Text style={styles.controlBtnText}>−</Text></Pressable>
-                <Text style={styles.controlLabel}>{decimalPlaces}dp</Text>
-                <Pressable onPress={() => setDecimalPlaces(p => Math.min(8, p + 1))} style={styles.controlBtn}><Text style={styles.controlBtnText}>+</Text></Pressable>
-              </View>
-              <Pressable onPress={() => setThousandsSep(p => !p)} style={[styles.controlBtn, styles.controlBtnWide, thousandsSep && styles.controlBtnActive]}>
-                <Text style={[styles.controlBtnText, thousandsSep && styles.controlBtnTextActive]}>,000</Text>
-              </Pressable>
-            </View>
-            <View style={styles.toggleRow}>
-              <Pressable style={[styles.toggleBtn, stampMode === 'result' && styles.toggleBtnActive]} onPress={() => setStampMode('result')}><Text style={[styles.toggleText, stampMode === 'result' && styles.toggleTextActive]}>{mode === 'conversion' ? 'No label' : 'Result only'}</Text></Pressable>
-              <View style={styles.toggleBtnSpacer} />
-              <Pressable style={[styles.toggleBtn, stampMode === 'expression' && styles.toggleBtnActive]} onPress={() => setStampMode('expression')}><Text style={[styles.toggleText, stampMode === 'expression' && styles.toggleTextActive]}>{mode === 'conversion' ? 'With label' : 'Full record'}</Text></Pressable>
-            </View>
-            <Pressable onPress={handleInsert} disabled={inserting} style={styles.insertBtn}><Text style={styles.insertBtnText}>{inserting ? 'Inserting...' : 'Insert'}</Text></Pressable>
-          </View>
+            </>
+          )}
         </Pressable>
       </KeyboardAvoidingView>
     </Pressable>

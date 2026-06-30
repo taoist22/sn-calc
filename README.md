@@ -7,6 +7,29 @@ https://github.com/user-attachments/assets/cbfb4f3f-7f6a-4d4b-8c81-f48797578e3e
 
 SnCalc Pro is a calculator plugin for the Supernote Nomad and Manta (A5X2) with four modes: Standard, Unit Conversion, Financial, and Scientific. Results can be stamped directly into the current note page.
 
+## Quick Lasso Calc
+
+SnCalc also appears in the note lasso menu as **Calc**. Use it when you have a simple handwritten or typed calculation already on the page and want the result inserted without opening the full calculator panel.
+
+1. Lasso a simple arithmetic expression, such as `10+30=` or `10.0+30.0=`.
+2. Tap **Calc** in the lasso menu.
+3. Review or correct the recognized expression in the popup.
+4. Choose **Full** to insert `10+30 = 40`, or **Result** to insert only `40`.
+5. Tap **Insert**.
+
+Lasso Calc supports digits, decimals, parentheses, percent, and `+`, `-`, `×`, `x`, `*`, `/`, and `÷`. It intentionally rejects more complex handwritten notation such as square-root symbols or spatial exponents. Results are inserted below the selected expression when there is room.
+
+If the recognized expression needs more work, tap **Open Calculator** to carry it into Standard mode for editing and evaluation.
+
+## Compact / Full Panel
+
+The calculator header includes a **Compact / Full** toggle.
+
+- **Compact** mode keeps mode tabs, a one-line display, and the keypad visible while hiding the larger display area and insert controls.
+- **Full** mode restores the larger display/register area, decimal and stamp controls, and the **Insert** button.
+
+Compact mode is intended for data entry while reading from the note underneath. Switch back to Full mode when you are ready to review, adjust stamp settings, or insert the result.
+
 ## Modes
 
 ### Standard
@@ -50,6 +73,7 @@ The entry field scrolls for long expressions and reports common domain/input err
 
 Present in all modes:
 
+- **Compact / Full:** Toggle the calculator between a shorter data-entry panel and the full panel. Compact mode keeps mode tabs, a one-line display, and the keypad visible while hiding insert controls.
 - **Hist navigation (back/forward):** Browse previously evaluated expressions (Standard and Scientific)
 - **Decimal places (- / +):** Adjust the number of decimal places shown, from 0 to 8
 - **,000:** Toggle thousands separator on or off
@@ -94,6 +118,8 @@ Smart placement detects the lowest existing element on the page and inserts belo
 ## Usage Notes
 
 - This is a beta release. Verify critical results independently.
+- Lasso **Calc** is meant for simple arithmetic only; use **Open Calculator** or the full calculator toolbar button for scientific notation, TVM, cash flows, and deeper expression editing.
+- Compact calculator mode is for data entry. Switch back to Full mode to review the larger display, adjust insert settings, or stamp results into the page.
 - Financial mode uses RPN (Reverse Polish Notation). Values are pushed onto a 4-register stack (X, Y, Z, T).
 - The DEG/RAD indicator appears in the top-left of the Scientific display.
 - The memory indicator (M) appears in the display when the memory register holds a non-zero value.

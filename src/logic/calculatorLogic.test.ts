@@ -4,8 +4,11 @@ import {
   appendOperatorToExpression,
   appendPercentToExpression,
   balanceExpression,
+  buildLassoCalculationOutput,
   calculationErrorMessage,
   evaluateExpr,
+  formatLassoCalculationResult,
+  normalizeSimpleArithmeticExpression,
   solveTVM,
   toggleExpressionSign,
 } from './calculatorLogic';
@@ -58,6 +61,28 @@ describe('Expression input helpers', () => {
     expect(balanceExpression('sin(90')).toBe('sin(90)');
     expect(balanceExpression('sin(')).toBe('sin(');
     expect(balanceExpression('12+')).toBe('12+');
+  });
+
+  test('normalizes simple OCR arithmetic for lasso calculation', () => {
+    expect(normalizeSimpleArithmeticExpression('1+51+81=')).toBe('1+51+81');
+    expect(normalizeSimpleArithmeticExpression('3 x 4')).toBe('3×4');
+    expect(normalizeSimpleArithmeticExpression('10−2')).toBe('10-2');
+    expect(evaluateExpr(normalizeSimpleArithmeticExpression('1+51+81='), 'deg')).toBe(133);
+  });
+
+  test('rejects unsupported OCR notation for lasso calculation', () => {
+    expect(() => normalizeSimpleArithmeticExpression('√9=')).toThrow('Unsupported notation');
+    expect(() => normalizeSimpleArithmeticExpression('1+')).toThrow('Incomplete arithmetic');
+  });
+
+  test('formats lasso calculation output from input precision', () => {
+    expect(buildLassoCalculationOutput('10+30=')).toBe('10+30 = 40');
+    expect(buildLassoCalculationOutput('10.0+30.0=')).toBe('10.0+30.0 = 40.0');
+    expect(buildLassoCalculationOutput('10.00+30.00=')).toBe('10.00+30.00 = 40.00');
+    expect(buildLassoCalculationOutput('10/4=')).toBe('10/4 = 2.5');
+    expect(buildLassoCalculationOutput('10/3=')).toBe('10/3 = 3.33333333');
+    expect(buildLassoCalculationOutput('10+30=', true)).toBe('40');
+    expect(formatLassoCalculationResult('10.0/4.0', 2.5)).toBe('2.5');
   });
 });
 

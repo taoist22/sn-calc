@@ -165,6 +165,65 @@ export function calculationErrorMessage(error: unknown): string {
   return 'Error';
 }
 
+export function normalizeSimpleArithmeticExpression(raw: string): string {
+  let expr = raw
+    .trim()
+    .replace(/[−–—]/g, '-')
+    .replace(/[·•]/g, '×')
+    .replace(/[ｘXx]/g, '×')
+    .replace(/[／]/g, '/')
+    .replace(/[＋]/g, '+')
+    .replace(/[＝]/g, '=')
+    .replace(/,/g, '')
+    .replace(/\s+/g, '');
+
+  if (expr.includes('=')) {
+    expr = expr.slice(0, expr.indexOf('='));
+  }
+  expr = expr.replace(/[=]+$/g, '');
+  if (!expr || !/\d/.test(expr)) {
+    throw new Error('No arithmetic found');
+  }
+  if (/[^0-9.+\-*/×÷()%]/.test(expr)) {
+    throw new Error('Unsupported notation');
+  }
+  const balanced = balanceExpression(expr);
+  if (!balanced || /[+\-*/×÷(.]$/.test(balanced)) {
+    throw new Error('Incomplete arithmetic');
+  }
+  return balanced;
+}
+
+function decimalPlacesInInput(expr: string): number {
+  const nums: string[] = expr.match(/\d+\.\d+|\.\d+/g) ?? [];
+  return nums.reduce((max: number, num: string) => {
+    const dec = num.split('.')[1] ?? '';
+    return Math.max(max, dec.length);
+  }, 0);
+}
+
+export function formatLassoCalculationResult(expr: string, result: number): string {
+  if (!Number.isFinite(result)) {
+    return 'Error';
+  }
+  const inputDecimals = decimalPlacesInInput(expr);
+  if (Number.isInteger(result)) {
+    return result.toFixed(inputDecimals);
+  }
+  const rounded = result.toFixed(Math.max(inputDecimals, 8));
+  return rounded.replace(/(\.\d*?)0+$/, '$1').replace(/\.$/, '');
+}
+
+export function buildLassoCalculationOutput(raw: string, resultOnly = false): string {
+  const expression = normalizeSimpleArithmeticExpression(raw);
+  const result = evaluateExpr(expression, 'deg');
+  if (!Number.isFinite(result)) {
+    throw new Error('Calculation did not produce a number');
+  }
+  const formatted = formatLassoCalculationResult(expression, result);
+  return resultOnly ? formatted : `${expression} = ${formatted}`;
+}
+
 // ─── Expression Parser ───────────────────────────────────────────────────────
 
 export function evaluateExpr(expr: string, angleUnit: AngleUnit): number {

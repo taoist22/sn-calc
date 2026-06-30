@@ -5,7 +5,9 @@ import {PluginManager} from 'sn-plugin-lib';
 import {installPluginRouter} from './src/pluginRouter';
 
 const BUTTON_TYPE_TOOLBAR = 1;
+const BUTTON_TYPE_LASSO = 2;
 const TOOLBAR_BUTTON_ID = 100;
+const LASSO_BUTTON_ID = 200;
 const SHOW_TYPE_WITH_UI = 1;
 
 AppRegistry.registerComponent(appName, () => App);
@@ -18,4 +20,12 @@ PluginManager.registerButton(BUTTON_TYPE_TOOLBAR, ['NOTE'], {
   name: 'Calculator',
   icon: Image.resolveAssetSource(require('./assets/calc.png')).uri,
   showType: SHOW_TYPE_WITH_UI,
+});
+
+PluginManager.registerButton(BUTTON_TYPE_LASSO, ['NOTE'], {
+  id: LASSO_BUTTON_ID,
+  name: 'Calc',
+  icon: Image.resolveAssetSource(require('./assets/calc.png')).uri,
+  showType: SHOW_TYPE_WITH_UI,
+  editDataTypes: [0, 3],
 });
