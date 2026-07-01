@@ -2,8 +2,8 @@
   "name": "Calculator",
   "desc": "Advanced calculator with Financial and Scientific modes.",
   "iconPath": "assets/calc.png",
-  "versionName": "2.3.10-beta",
-  "versionCode": "11",
+  "versionName": "2.3.11-beta",
+  "versionCode": "12",
   "pluginID": "c4lc8r2p5n9x7mqz-pro",
   "pluginKey": "SnCalcPro",
   "jsMainPath": "index"

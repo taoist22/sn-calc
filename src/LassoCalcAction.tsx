@@ -1,4 +1,4 @@
-import React, {useEffect, useState} from 'react';
+import React, {useEffect, useRef, useState} from 'react';
 import {Pressable, StyleSheet, Text, TextInput, View} from 'react-native';
 import {
   PluginCommAPI,
@@ -8,12 +8,13 @@ import {
   type Point,
   type Rect,
 } from 'sn-plugin-lib';
-import {doInsert, type InsertAnchorRect} from './CalcPanelPro';
+import {doInsert} from './CalcPanelPro';
 import {
   buildLassoCalculationOutput,
   calculationErrorMessage,
   normalizeSimpleArithmeticExpression,
 } from './logic/calculatorLogic';
+import {type InsertAnchorRect, type InsertPlacementMode} from './logic/insertPlacement';
 
 type ApiRes<T> = {success: boolean; result?: T; error?: {message?: string}} | null | undefined;
 type Phase =
@@ -36,6 +37,12 @@ const LASSO_RECT_MARGIN = 8;
 class NoActiveLassoError extends Error {
   constructor() {
     super('No active lasso selection');
+  }
+}
+
+class NoLassoStrokesError extends Error {
+  constructor() {
+    super('No strokes to recognize');
   }
 }
 
@@ -204,7 +211,7 @@ async function extractLassoOcr(onStatus: (msg: string) => void, rect: Rect): Pro
   try {
     const strokes = await getCurrentLassoStrokes(elements, pageNum, rect);
     if (strokes.length === 0) {
-      throw new Error('No strokes to recognize');
+      throw new NoLassoStrokesError();
     }
 
     let pageSize = DEFAULT_PAGE_SIZE;
@@ -241,32 +248,39 @@ async function extractLassoText(onStatus: (msg: string) => void): Promise<LassoR
   const filePath = await getCurrentFilePath();
   const isNote = filePath.toLowerCase().endsWith('.note');
   const rect = await getCurrentLassoRect();
+  let typedText = '';
 
   if (isNote) {
     try {
+      onStatus('Reading typed text...');
       const lassoTextRes = (await withTimeout(
         PluginNoteAPI.getLassoText(),
         'Reading selected typed text',
         API_TIMEOUT_MS,
       )) as ApiRes<Array<{textContentFull: string}>>;
       if (lassoTextRes?.success && lassoTextRes.result?.length) {
-        const combined = lassoTextRes.result
+        typedText = lassoTextRes.result
           .map(tb => tb.textContentFull?.trim())
           .filter(Boolean)
-          .join(' ');
-        if (combined) {
-          return {text: combined, rect};
-        }
+          .join('');
       }
     } catch (error) {
-      console.warn('[LassoCalc] getLassoText failed, trying OCR:', error);
+      console.warn('[LassoCalc] getLassoText failed, trying handwriting OCR:', error);
     }
   }
 
   try {
-    return {text: await extractLassoOcr(onStatus, rect), rect};
+    const handwritingText = await extractLassoOcr(onStatus, rect);
+    const combined = `${typedText}${handwritingText}`.trim();
+    if (combined) {
+      return {text: combined, rect};
+    }
+    throw new Error('Nothing to recognize in selection');
   } catch (error) {
-    if (error instanceof NoActiveLassoError) {
+    if (typedText && (error instanceof NoActiveLassoError || error instanceof NoLassoStrokesError)) {
+      return {text: typedText, rect};
+    }
+    if (error instanceof NoActiveLassoError || error instanceof NoLassoStrokesError) {
       throw new Error('Nothing to recognize in selection');
     }
     throw error;
@@ -285,11 +299,13 @@ function calculateText(text: string, outputMode: OutputMode): string {
 }
 
 export default function LassoCalcAction({onOpenCalculator}: Props) {
+  const inputRef = useRef<TextInput>(null);
   const [phase, setPhase] = useState<Phase>({kind: 'loading', msg: 'Reading selection...'});
   const [text, setText] = useState('');
   const [anchorRect, setAnchorRect] = useState<InsertAnchorRect | undefined>();
   const [preview, setPreview] = useState('');
   const [outputMode, setOutputMode] = useState<OutputMode>('full');
+  const [inputSelection, setInputSelection] = useState({start: 0, end: 0});
   const [inserting, setInserting] = useState(false);
 
   useEffect(() => {
@@ -300,6 +316,7 @@ export default function LassoCalcAction({onOpenCalculator}: Props) {
       .then(read => {
         if (cancelled) return;
         setText(read.text);
+        setInputSelection({start: read.text.length, end: read.text.length});
         setAnchorRect(read.rect);
         try {
           setPreview(calculateText(read.text, 'full'));
@@ -307,6 +324,7 @@ export default function LassoCalcAction({onOpenCalculator}: Props) {
           setPreview('');
         }
         setPhase({kind: 'ready'});
+        setTimeout(() => inputRef.current?.focus(), 0);
       })
       .catch(error => {
         if (!cancelled) {
@@ -344,7 +362,8 @@ export default function LassoCalcAction({onOpenCalculator}: Props) {
     setInserting(true);
     try {
       const output = calculateText(text, outputMode);
-      await doInsert(output, anchorRect);
+      const placementMode: InsertPlacementMode = outputMode === 'result' ? 'right-of-anchor' : 'default';
+      await doInsert(output, anchorRect, placementMode);
       PluginManager.closePluginView();
     } catch (error) {
       const msg = getErrorMessage(error, 'Could not calculate selection');
@@ -374,11 +393,15 @@ export default function LassoCalcAction({onOpenCalculator}: Props) {
             {phase.kind === 'error' && <Text style={styles.errorText}>{phase.msg}</Text>}
             <Text style={styles.label}>Recognized expression</Text>
             <TextInput
+              ref={inputRef}
               style={styles.input}
               value={text}
               onChangeText={handleTextChange}
+              selection={inputSelection}
+              onSelectionChange={event => setInputSelection(event.nativeEvent.selection)}
               autoCapitalize="none"
               autoCorrect={false}
+              autoFocus
               multiline
               placeholder="1+51+81="
               placeholderTextColor="#777"

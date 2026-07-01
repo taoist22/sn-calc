@@ -25,6 +25,11 @@ import {
   toggleExpressionSign
 } from './logic/calculatorLogic';
 import { CONV_CATEGORIES } from './logic/conversionData';
+import {
+  calculateInsertRect,
+  type InsertAnchorRect,
+  type InsertPlacementMode,
+} from './logic/insertPlacement';
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -32,7 +37,6 @@ type CalcMode = 'standard' | 'conversion' | 'financial' | 'scientific';
 const MODE_LABELS: Record<CalcMode, string> = { standard: 'STD', conversion: 'CONV', financial: 'FIN', scientific: 'SCI' };
 type StampMode = 'result' | 'expression';
 type ApiRes<T> = {success: boolean; result?: T; error?: {message?: string}} | null | undefined;
-export type InsertAnchorRect = {left: number; top: number; right: number; bottom: number};
 type FinRecord = {
   title: string;
   lines: string[];
@@ -118,7 +122,11 @@ async function findInsertTop(filePath: string, pageNum: number, pageHeight: numb
   return clamp(pageHeight - BOTTOM_MARGIN - boxHeight, PAGE_EDGE_MARGIN, lowestSafeTop);
 }
 
-export async function doInsert(text: string, anchorRect?: InsertAnchorRect): Promise<void> {
+export async function doInsert(
+  text: string,
+  anchorRect?: InsertAnchorRect,
+  placementMode: InsertPlacementMode = 'default',
+): Promise<void> {
   let pageWidth = DEFAULT_PAGE_WIDTH, pageHeight = DEFAULT_PAGE_HEIGHT, filePath: string | undefined, pageNum: number | undefined;
   try {
     const pathRes = (await PluginCommAPI.getCurrentFilePath()) as ApiRes<string>;
@@ -142,21 +150,39 @@ export async function doInsert(text: string, anchorRect?: InsertAnchorRect): Pro
     ? Math.max(MIN_STAMP_FONT_SIZE, Math.floor(maxBoxHeight / lineCount) - LINE_HEIGHT_PAD)
     : STAMP_FONT_SIZE;
   const boxHeight = Math.min(lineCount * (stampFontSize + LINE_HEIGHT_PAD), maxBoxHeight);
-  const maxLeft = Math.max(PAGE_EDGE_MARGIN, pageWidth - PAGE_EDGE_MARGIN - stampFontSize * 6);
+  const defaultLeft = Math.min(LEFT_MARGIN, Math.max(PAGE_EDGE_MARGIN, Math.floor(pageWidth * 0.12)));
+  const anchorGap = Math.round(SMART_PLACEMENT_GAP / 2);
+  const minBoxWidth = stampFontSize * 6;
   const preferredLeft = anchorRect
-    ? anchorRect.left
-    : Math.min(LEFT_MARGIN, Math.max(PAGE_EDGE_MARGIN, Math.floor(pageWidth * 0.12)));
-  const left = clamp(preferredLeft, PAGE_EDGE_MARGIN, maxLeft);
-  const availableWidth = Math.max(stampFontSize * 6, pageWidth - left - PAGE_EDGE_MARGIN);
+    ? placementMode === 'right-of-anchor'
+      ? anchorRect.right + anchorGap
+      : anchorRect.left
+    : defaultLeft;
+  const leftForWidth = clamp(
+    preferredLeft,
+    PAGE_EDGE_MARGIN,
+    Math.max(PAGE_EDGE_MARGIN, pageWidth - PAGE_EDGE_MARGIN - minBoxWidth),
+  );
+  const availableWidth = Math.max(minBoxWidth, pageWidth - leftForWidth - PAGE_EDGE_MARGIN);
   const boxWidth = Math.min(Math.max(stampFontSize * 6, Math.ceil(maxLineLength * stampFontSize * 0.7)), availableWidth);
   const maxTop = Math.max(PAGE_EDGE_MARGIN, pageHeight - PAGE_EDGE_MARGIN - boxHeight);
-  const anchoredTop = anchorRect
-    ? clamp(anchorRect.bottom + Math.round(SMART_PLACEMENT_GAP / 2), PAGE_EDGE_MARGIN, maxTop)
-    : null;
   const fallbackTop = clamp(pageHeight - BOTTOM_MARGIN - boxHeight, PAGE_EDGE_MARGIN, maxTop);
-  const top = anchoredTop ?? ((filePath !== undefined && pageNum !== undefined) ? await findInsertTop(filePath, pageNum, pageHeight, boxHeight) : fallbackTop);
+  const defaultTop = filePath !== undefined && pageNum !== undefined
+    ? await findInsertTop(filePath, pageNum, pageHeight, boxHeight)
+    : fallbackTop;
 
-  const safeRect = { left, top, right: left + boxWidth, bottom: top + boxHeight };
+  const safeRect = calculateInsertRect({
+    anchorRect,
+    placementMode,
+    pageWidth,
+    pageHeight,
+    boxWidth,
+    boxHeight,
+    defaultLeft,
+    defaultTop,
+    pageEdgeMargin: PAGE_EDGE_MARGIN,
+    anchorGap,
+  });
   const res = (await PluginNoteAPI.insertText({ textContentFull: text, textRect: safeRect, fontSize: stampFontSize, textBold: 1, textItalics: 0, textAlign: 0, textEditable: 1, showLassoAfterInsert: true })) as ApiRes<boolean>;
   if (!res?.success) throw new Error(res?.error?.message ?? 'Fail');
 }
