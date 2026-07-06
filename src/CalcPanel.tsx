@@ -186,10 +186,6 @@ async function doInsert(text: string): Promise<void> {
   if (!res?.success) {
     throw new Error(res?.error?.message ?? 'insertText failed');
   }
-
-  try {
-    await PluginCommAPI.lassoElements(textRect);
-  } catch {}
 }
 
 // ─── Component ───────────────────────────────────────────────────────────────
