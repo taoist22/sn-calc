@@ -33,6 +33,9 @@ const LEFT_MARGIN = 180;
 const DEFAULT_PAGE_WIDTH = 1404;
 const DEFAULT_PAGE_HEIGHT = 1872;
 const ERROR_DISPLAY_MS = 2500;
+// Ghost duplicate taps from the touch panel arrive within a few tens of ms;
+// deliberate same-key repeats (the two 0s in "200") take ~200ms or more.
+const TAP_DEBOUNCE_MS = 150;
 
 type StampMode = 'result' | 'expression';
 type ApiRes<T> = {success: boolean; result?: T; error?: {message?: string}} | null | undefined;
@@ -518,9 +521,18 @@ function CalcBtn({
   variant?: 'number' | 'utility' | 'operator' | 'equals';
   pos: {position: 'absolute'; top: number; left: number};
 }) {
+  const lastPressRef = useRef(0);
+  const handlePress = () => {
+    const now = Date.now();
+    if (now - lastPressRef.current < TAP_DEBOUNCE_MS) {
+      return;
+    }
+    lastPressRef.current = now;
+    onPress();
+  };
   return (
     <Pressable
-      onPress={onPress}
+      onPress={handlePress}
       style={({pressed}) => [
         styles.btn,
         pos,

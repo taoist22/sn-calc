@@ -1,6 +1,6 @@
 {
   "name": "SnCalc",
-  "version": "2.3.12-beta",
+  "version": "2.3.13-beta",
   "description": "Calculate and stamp results or full expressions onto the current Supernote page.",
   "private": true,
   "scripts": {

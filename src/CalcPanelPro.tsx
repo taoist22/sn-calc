@@ -59,6 +59,9 @@ const PAGE_EDGE_MARGIN = 40;
 const DEFAULT_PAGE_WIDTH = 1404;
 const DEFAULT_PAGE_HEIGHT = 1872;
 const ERROR_DISPLAY_MS = 2500;
+// Ghost duplicate taps from the touch panel arrive within a few tens of ms;
+// deliberate same-key repeats take ~200ms or more.
+const TAP_DEBOUNCE_MS = 150;
 const DEVICE_NATIVE_PORTRAIT: Record<number, {width: number; height: number}> = {
   3: {width: 1404, height: 1872}, // A5X
   4: {width: 1404, height: 1872}, // Nomad
@@ -1451,8 +1454,17 @@ function RegItem({label, val, scale = 1}: {label: string, val: number | null, sc
 }
 
 function CalcBtn({label, onPress, variant = 'number', pos, scale = 1}: {label: string, onPress: () => void, variant?: 'number' | 'utility' | 'operator' | 'equals' | 'function' | 'highlight' | 'fKey' | 'gKey', pos: any, scale?: number}) {
+  const lastPressRef = useRef(0);
+  const handlePress = () => {
+    const now = Date.now();
+    if (now - lastPressRef.current < TAP_DEBOUNCE_MS) {
+      return;
+    }
+    lastPressRef.current = now;
+    onPress();
+  };
   return (
-    <Pressable onPress={onPress} style={[baseStyles.btn, pos,
+    <Pressable onPress={handlePress} style={[baseStyles.btn, pos,
         variant === 'utility' && baseStyles.btnUtility,
         variant === 'operator' && baseStyles.btnOperator,
         variant === 'equals' && baseStyles.btnEquals,
